@@ -89,6 +89,20 @@ const TOKENS: ReadonlyArray<readonly [string, string]> = [
  * actually arrive is a question only a browser
  * answers.
  */
+/**
+ * How much of the table above has to reach the
+ * browser. Twenty-five of the forty-two do today;
+ * the floor sits below that because a token falling
+ * out of use is Tailwind working as intended and is
+ * not a regression.
+ *
+ * Without it this spec cannot fail for the reason it
+ * exists: delete the `@theme` block and every entry
+ * resolves to nothing, every comparison is skipped,
+ * and forty-two skipped comparisons report a pass.
+ */
+const MINIMUM_RESOLVED = 20;
+
 const ALWAYS_PRESENT: ReadonlyArray<readonly [string, string]> = [
   ['--color-bg', '#f2f2f3'],
   ['--color-text', '#1d1f20'],
@@ -104,6 +118,21 @@ test('the tokens the page paints with carry the design values', async ({
     page,
     TOKENS.map(([name]) => name),
   );
+
+  // A token nothing on the site uses yet never
+  // reaches the browser at all, so a token that
+  // resolved to nothing is skipped below rather than
+  // failed. The count is checked first, because the
+  // difference between "Tailwind pruned a few" and
+  // "there is no theme block any more" shows up only
+  // in the total — and a run that skipped every
+  // entry would otherwise report a pass having
+  // compared nothing.
+  const pruned = TOKENS.filter((_, index) => resolved[index] === '');
+  expect(
+    TOKENS.length - pruned.length,
+    `resolved to nothing: ${pruned.map(([name]) => name).join(', ')}`,
+  ).toBeGreaterThanOrEqual(MINIMUM_RESOLVED);
 
   for (const [index, [name, value]] of TOKENS.entries()) {
     const actual = resolved[index];
