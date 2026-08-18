@@ -75,14 +75,29 @@ therefore a dead end for a day, and it looks like an unrelated flake.
 
 ## What each spec proves
 
-| Spec                    | What it proves                                                                                                                                                                                                                                                                         |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `design-tokens.spec.ts` | Every token the page paints with resolves to the design's value in a real engine, and the load-bearing ones and the faces arrive at all; a dark-scheme preference changes nothing; the wireframe override squares every component; a registration mark hangs outside its box unclipped |
-| `landing.spec.ts`       | The landing copy verbatim; four registration marks per blueprint box; no pricing, testimonial, comparison or footer nav; `/docs` and `/changelog` are real pages                                                                                                                       |
-| `waitlist-join.spec.ts` | A browser signup reaches Postgres through the web app and the private API, and comes back as the success card with today's date; the card offers no queue position                                                                                                                     |
-| `manage.spec.ts`        | An unusable manage link renders the uniform error state and names nobody; the manage card is deliberately not blueprint-framed                                                                                                                                                         |
-| `admin-signin.spec.ts`  | The sign-in card verbatim; no site nav; a signed-out console request lands on `/admin`, and `/admin` does not redirect to itself                                                                                                                                                       |
-| `admin-console.spec.ts` | A minted session opens the console; the chips carry the API's live counts; a fresh signup reaches the table with its derived note; a broadcast records the admin who sent it                                                                                                           |
+**`design-tokens.spec.ts`** — Every token the page paints with resolves to the
+design's value in a real engine, and the load-bearing ones and the faces arrive
+at all; a dark-scheme preference changes nothing; the wireframe override squares
+every component; a registration mark hangs outside its box unclipped.
+
+**`landing.spec.ts`** — The landing copy verbatim; four registration marks per
+blueprint box; no pricing, testimonial, comparison or footer nav; `/docs` and
+`/changelog` are real pages.
+
+**`waitlist-join.spec.ts`** — A browser signup reaches Postgres through the
+web app and the private API, and comes back as the success card with today's
+date; the card offers no queue position.
+
+**`manage.spec.ts`** — An unusable manage link renders the uniform error state
+and names nobody; the manage card is deliberately not blueprint-framed.
+
+**`admin-signin.spec.ts`** — The sign-in card verbatim; no site nav; a
+signed-out console request lands on `/admin`, and `/admin` does not redirect
+to itself.
+
+**`admin-console.spec.ts`** — A minted session opens the console; the chips
+carry the API's live counts; a fresh signup reaches the table with its derived
+note; a broadcast records the admin who sent it.
 
 ## What this suite cannot prove
 
