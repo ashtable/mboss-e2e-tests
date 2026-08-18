@@ -33,13 +33,25 @@ test('an unusable link says so and names nobody', async ({ page }) => {
 });
 
 test('the manage page is not blueprint-framed', async ({ page }) => {
-  await page.goto('/u/not-a-real-token');
+  const response = await page.goto('/u/not-a-real-token');
+  expect(response?.status()).toBe(200);
+
+  // Two counts of zero hold on a 404 as readily as
+  // here, so the page names itself first.
+  await expect(
+    page.getByRole('heading', { name: "That link doesn't work." }),
+  ).toBeVisible();
 
   // The registration marks are the public front
   // door's tell. A page reached through a private
   // link deliberately does not wear them, and this
   // is exactly the kind of difference someone
   // "fixes" into consistency.
+  //
+  // Only the error state is reachable from this
+  // stack; that the card itself is plain-divider
+  // framed is proved in mboss-web's manage-card
+  // component test, where a valid state can exist.
   await expect(page.locator('.blueprint')).toHaveCount(0);
   await expect(page.locator('.corner')).toHaveCount(0);
 });

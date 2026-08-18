@@ -71,13 +71,21 @@ test('every blueprint box carries four registration marks', async ({
 });
 
 test('the page sells nothing it does not have', async ({ page }) => {
-  await page.goto('/');
+  const response = await page.goto('/');
+  expect(response?.status()).toBe(200);
+
+  const body = (await page.locator('body').innerText()).toLowerCase();
+
+  // Absences alone would hold on any page at all —
+  // /admin, a 404, an empty document — so the
+  // headline is asserted first to tie the rest of
+  // this test to the page it is about.
+  expect(body).toContain('design durable apps.');
 
   // There is no product to price, nobody has used it
   // and there is nothing to compare it against. Each
   // of these sections is the kind of thing that
   // arrives with a template.
-  const body = (await page.locator('body').innerText()).toLowerCase();
   for (const absent of ['pricing', 'per month', 'testimonial', 'compare']) {
     expect(body, absent).not.toContain(absent);
   }

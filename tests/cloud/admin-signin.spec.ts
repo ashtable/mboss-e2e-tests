@@ -36,7 +36,14 @@ test('the sign-in card reads as written', async ({ page }) => {
 });
 
 test('the sign-in page wears no site nav', async ({ page }) => {
-  await page.goto('/admin');
+  const response = await page.goto('/admin');
+  expect(response?.status()).toBe(200);
+
+  // A count of zero holds on a 404 too, so the card
+  // is named first.
+  await expect(
+    page.getByRole('heading', { name: 'Admin sign-in' }),
+  ).toBeVisible();
 
   // A door, not a destination. Site chrome here
   // would invite a visitor to wander a console they
