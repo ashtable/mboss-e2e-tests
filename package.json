@@ -1,0 +1,28 @@
+{
+  "name": "@mboss/e2e-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "mBoss end-to-end suite — Playwright against the compose stack.",
+  "license": "MIT",
+  "engines": {
+    "node": "24.18"
+  },
+  "scripts": {
+    "test:cloud": "playwright test --project=cloud",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "lint": "tsc --noEmit && eslint . && prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^24.13.3",
+    "eslint": "^10.8.1",
+    "eslint-config-prettier": "^10.1.8",
+    "next-auth": "5.0.0-beta.32",
+    "prettier": "^3.9.6",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.66.0"
+  }
+}

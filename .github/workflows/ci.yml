@@ -1,0 +1,19 @@
+name: CI
+on: [pull_request]
+jobs:
+  # Lint only. Every spec in this repo needs the
+  # superproject's compose stack — four services and
+  # a database — so there is nothing here CI can run
+  # hermetically. What it can do is prove the specs
+  # compile, and a spec that does not compile is a
+  # spec that never ran.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run lint
