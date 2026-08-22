@@ -16,6 +16,9 @@ const HERO_BODY =
   'agent proposes the workflow, mBoss validates and previews it, and the ' +
   'approved graph compiles to durable DBOS code.';
 
+/** The nav is a sibling of `main`, not a child. */
+const NAV_COPY = ['Docs', 'Changelog', 'github.com/ashtable/mboss'];
+
 const COPY = [
   'AGENT-NATIVE · VS CODE + DBOS',
   'Design durable apps.',
@@ -28,24 +31,60 @@ const COPY = [
   'JOIN THE WAITLIST — EARLY DAYS',
   'Join waitlist',
   'progress emails as features land · unsubscribe anytime',
+
+  // The decorative mini-canvas. It is marketing art
+  // and it is aria-hidden, which is why it is easy to
+  // edit without anyone noticing — the words are as
+  // load-bearing here as anywhere else on the page,
+  // because they are what a reader believes mBoss
+  // does.
+  'Request created',
+  'on: helper.request.created',
+  '↓ Request',
+  'Wait for the form',
+  'durable wait — sleeps in Postgres',
+  '↓ Submission',
+  'Embed into Weaviate',
+  'auto-embed · durable step',
+
   'SNEAK PEEKS — FROM THE DEVELOPMENT BUILD',
   'PROMPT IT — OR DRAW IT',
   'the canvas',
+  '"book grooming with christa" → 7 nodes · validated ✓ · approved',
   'WATCH IT SURVIVE A CRASH',
   'the runs view',
   'SHIP REAL DBOS CODE',
   'generated · read-only',
+  'exactly-once ✓',
   'early development screens — details will change · follow along at ' +
     'github.com/ashtable/mboss',
 ];
 
+/**
+ * The runs-view caption, which the design breaks
+ * across two lines with a `<br>`. `textContent` runs
+ * the halves together, so this one is read the way
+ * the page renders it.
+ */
+const RUNS_VIEW_CAPTION =
+  'process killed mid-run — DBOS picked up from Postgres · 0 steps ' +
+  're-executed';
+
 test('the landing page carries its copy verbatim', async ({ page }) => {
   await page.goto('/');
+
+  const nav = page.locator('nav');
+  for (const line of NAV_COPY) {
+    await expect(nav, line).toContainText(line);
+  }
 
   const main = page.locator('main');
   for (const line of COPY) {
     await expect(main, line).toContainText(line);
   }
+  await expect(main, RUNS_VIEW_CAPTION).toContainText(RUNS_VIEW_CAPTION, {
+    useInnerText: true,
+  });
 
   const field = page.getByPlaceholder('you@company.com');
   await expect(field).toHaveAttribute('type', 'email');
