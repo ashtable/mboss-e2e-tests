@@ -89,7 +89,9 @@ web app and the private API, and comes back as the success card with today's
 date; the card offers no queue position.
 
 **`manage.spec.ts`** — An unusable manage link renders the uniform error state
-and names nobody; the manage card is deliberately not blueprint-framed.
+and names nobody; the manage card is deliberately not blueprint-framed; the
+one-click unsubscribe endpoint mail clients fire by themselves answers a bad
+token without a 5xx and without rendering a page into a response nobody reads.
 
 **`admin-signin.spec.ts`** — The sign-in card verbatim; no site nav; a
 signed-out console request lands on `/admin`, and `/admin` does not redirect
@@ -99,20 +101,46 @@ to itself.
 carry the API's live counts; a fresh signup reaches the table with its derived
 note; a broadcast records the admin who sent it.
 
+**`email-events.spec.ts`** — SendGrid's event webhook is on the built artifact,
+reachable from outside the container, POST-only, and refuses an unsigned or
+wrongly-signed batch with a 401 that says nothing back. A pinning test: it
+passed the first time it ran, and it says so.
+
+**`responsive.spec.ts`** — Neither the landing page, the sign-in card nor the
+manage page scrolls sideways at 390px or 320px; the narrow nav wraps rather
+than hiding the repo URL below a breakpoint; the join box takes a signup from
+the keyboard alone and paints the accent focus ring; nothing animates.
+
 ## What this suite cannot prove
 
-Two journeys are out of reach from the root compose, which is the development
-stack and never grows test-only services:
+These are out of reach from the root compose, which is the development stack
+and never grows test-only services. Each has an obvious-looking shortcut, and
+each shortcut costs more than the coverage is worth.
 
-- **The confirmation email → manage link.** Capturing the signed link needs a
-  mail sink standing in for SendGrid. Only the _invalid_ token path is proved
-  here; pause, resume and unsubscribe are proved at the unit layer in
-  `mboss-web`.
+- **The confirmation email → manage link**, and pause, resume and unsubscribe
+  on a valid token. Capturing the signed link needs a mail sink standing in for
+  SendGrid. Only the unusable-token paths are proved here — the page and the
+  one-click endpoint — and the actions are proved at the unit layer in
+  `mboss-web`. _The shortcut to refuse:_ minting a `wl.manage` token in the
+  suite from the compose default `LINK_KEYS`. It is forty lines of
+  `node:crypto` away and it would work. A suite that mints its own links stops
+  testing the minting.
 - **The wrong-tenant sign-in rejection.** Driving it needs a mock OIDC issuer
   able to mint a token with an arbitrary `tid`. The policy that decides it is a
-  pure function with its own unit tests in `mboss-web`.
-
-Both belong to the full harness below.
+  pure function with its own unit tests in `mboss-web`. _The shortcut to
+  refuse:_ a test-only auth path in `mboss-web`, which would leave the gate
+  proved by a code path the product never runs.
+- **The signed webhook, and the bounce chain behind it.** It needs
+  `SENDGRID_WEBHOOK_PUBLIC_KEY` set to a keypair's public half before the stack
+  boots, which the ordinary `docker compose up` does not do. The recipe is
+  written down in `email-events.spec.ts`. _The shortcut to refuse:_ a spec that
+  skips itself when the variable is missing — the same objection this file
+  makes to a `npm test` that exits zero without testing anything.
+- **`confirmation-resend`, `broadcast-journey` and `broadcast-crash-resume`.**
+  All three need a database that starts empty and a suite that can stop and
+  start containers — the tmpfs Postgres and `helpers/compose.ts` below. _The
+  shortcut to refuse:_ asserting on the development volume's accumulated state.
+  Counts here grow with every run, so an absolute number is true exactly once.
 
 One more, for a different reason: **the full design-token ramp**. Tailwind
 emits only the theme variables its generated CSS references, so a token nothing
@@ -133,8 +161,8 @@ The finished harness adds:
 - `mboss-web`, `mboss-nodejs-api` and `mboss-nodejs-dbos` nested here as build
   contexts, which is also what removes the `next-auth` version coupling.
 - The `mcp` and `extension` Playwright projects, and the remaining cloud specs:
-  `confirmation-resend`, `broadcast-journey`, `broadcast-crash-resume`,
-  `email-events`.
+  `confirmation-resend`, `broadcast-journey`, `broadcast-crash-resume`, and the
+  signed half of `email-events`.
 
-The six specs here are the seed of `tests/cloud/`, and the shape the harness
+The eight specs here are the seed of `tests/cloud/`, and the shape the harness
 inherits: `retries: 0`, `workers: 1`, one project named `cloud`.
