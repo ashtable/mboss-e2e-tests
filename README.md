@@ -86,7 +86,10 @@ blueprint box; no pricing, testimonial, comparison or footer nav; `/docs` and
 
 **`waitlist-join.spec.ts`** — A browser signup reaches Postgres through the
 web app and the private API, and comes back as the success card with today's
-date; the card offers no queue position.
+date and nothing added to the URL; the card offers no queue position; served
+with JavaScript off — the pre-hydration window with its clock stopped — the
+form refuses to submit itself rather than dropping the signup into a native
+GET.
 
 **`manage.spec.ts`** — An unusable manage link renders the uniform error state
 and names nobody; the manage card is deliberately not blueprint-framed; the
