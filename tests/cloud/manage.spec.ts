@@ -55,3 +55,63 @@ test('the manage page is not blueprint-framed', async ({ page }) => {
   await expect(page.locator('.blueprint')).toHaveCount(0);
   await expect(page.locator('.corner')).toHaveCount(0);
 });
+
+/**
+ * `POST /api/unsubscribe/[token]` — the endpoint a
+ * mail client fires by itself, from the broadcast's
+ * `List-Unsubscribe-Post` header. Nobody is watching
+ * when it runs, so the only visible failure is the
+ * one that arrives weeks later as a spam complaint.
+ *
+ * Only the unusable-token half is provable here, for
+ * the same reason the rest of this file is: a valid
+ * token arrives by email. That half waits for the
+ * harness's mail sink, and it is not shortcut by
+ * minting a token from the known signing keys — a
+ * suite that mints its own links stops testing the
+ * minting.
+ */
+
+const UNSUBSCRIBE = '/api/unsubscribe/not-a-real-token';
+
+test('the one-click endpoint exists, and takes only POST', async ({
+  request,
+}) => {
+  // Both a bad token and a missing route answer 404,
+  // so the route is named by something else first.
+  // Without this, every assertion below would pass
+  // just as well against a deleted handler.
+  const response = await request.get(UNSUBSCRIBE);
+  expect(response.status()).toBe(405);
+});
+
+for (const [shape, headers] of [
+  ['as posted', {}],
+  // What a mail client actually sends.
+  ['as a form post', { 'content-type': 'application/x-www-form-urlencoded' }],
+] as const) {
+  test(`an unusable one-click token is refused, ${shape}`, async ({
+    request,
+  }) => {
+    const response = await request.post(UNSUBSCRIBE, {
+      headers,
+      data: 'List-Unsubscribe=One-Click',
+    });
+
+    // It mirrors the API's own verdict on the token.
+    // What matters is the half of the range it stays
+    // out of: a 5xx has the mail client retry, and
+    // some providers treat a one-click that failed as
+    // a reason to offer the complaint button instead.
+    expect(response.status()).toBe(404);
+
+    // Nobody sees this response, so rendering a page
+    // into it is wasted work at best. It is also how
+    // a missing route answers, which is what the 405
+    // above rules out. There is no content-type at
+    // all on an empty body, which is why the header
+    // is read defensively.
+    expect(response.headers()['content-type'] ?? '').not.toContain('text/html');
+    expect(await response.text()).toBe('');
+  });
+}
