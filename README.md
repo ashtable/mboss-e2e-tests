@@ -93,9 +93,10 @@ and names nobody; the manage card is deliberately not blueprint-framed; the
 one-click unsubscribe endpoint mail clients fire by themselves answers a bad
 token without a 5xx and without rendering a page into a response nobody reads.
 
-**`admin-signin.spec.ts`** — The sign-in card verbatim; no site nav; a
-signed-out console request lands on `/admin`, and `/admin` does not redirect
-to itself.
+**`admin-signin.spec.ts`** — The sign-in card verbatim, blueprint-framed with
+its four registration marks like the public screens it is reached from; no site
+nav; a signed-out console request lands on `/admin`, and `/admin` does not
+redirect to itself.
 
 **`admin-console.spec.ts`** — A minted session opens the console; the chips
 carry the API's live counts; a fresh signup reaches the table with its derived

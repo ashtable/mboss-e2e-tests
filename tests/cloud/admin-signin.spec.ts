@@ -35,6 +35,29 @@ test('the sign-in card reads as written', async ({ page }) => {
   ).toHaveAttribute('href', '/');
 });
 
+test('the sign-in card is blueprint-framed', async ({ page }) => {
+  await page.goto('/admin');
+
+  // A count of one holds on nothing in particular,
+  // so the card is named first.
+  await expect(
+    page.getByRole('heading', { name: 'Admin sign-in' }),
+  ).toBeVisible();
+
+  // Whoever is looking at this page is still
+  // anonymous — it is a public surface reached from
+  // the public site, and it is framed like the
+  // waitlist screens are. The console behind it is
+  // not, and neither is the manage page: the
+  // registration marks are how a reader tells the
+  // front door from a private link or an operator's
+  // screen, and that line is drawn at the sign-in,
+  // not at the session.
+  const card = page.locator('main > .blueprint');
+  await expect(card).toHaveCount(1);
+  await expect(card.locator('> .corner')).toHaveCount(4);
+});
+
 test('the sign-in page wears no site nav', async ({ page }) => {
   const response = await page.goto('/admin');
   expect(response?.status()).toBe(200);
