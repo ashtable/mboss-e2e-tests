@@ -113,7 +113,8 @@ passed the first time it ran, and it says so.
 **`responsive.spec.ts`** — Neither the landing page, the sign-in card nor the
 manage page scrolls sideways at 390px or 320px; the narrow nav wraps rather
 than hiding the repo URL below a breakpoint; the join box takes a signup from
-the keyboard alone and paints the accent focus ring; nothing animates.
+the keyboard alone, hands focus to the success card that replaces it, and paints
+the accent focus ring; nothing animates.
 
 ## What this suite cannot prove
 

@@ -98,20 +98,16 @@ test('the join box takes a signup from the keyboard alone', async ({
 
   // The join box is the page's one client island, and
   // for about a dozen milliseconds after the document
-  // loads it is not listening yet — Enter falls
-  // through to a native GET that reloads `/?email=…`
-  // and drops the signup without saying so. A reader
-  // takes seconds to tab and type and never sees that
-  // window; a test takes milliseconds and lands
-  // squarely in it, so it waits for the same thing
-  // the reader's own pace waited for.
-  await page.waitForFunction(() => {
-    const form = document.querySelector('form');
-    return (
-      form !== null &&
-      Object.keys(form).some((key) => key.startsWith('__react'))
-    );
-  });
+  // loads it is not listening yet. The button ships
+  // `disabled` for exactly that span, so waiting for
+  // it to clear is waiting for hydration — through
+  // the page's own public signal rather than by
+  // reading React's private fields off the form, which
+  // is what this waited on before the button carried
+  // the state itself.
+  await expect(
+    page.getByRole('button', { name: 'Join waitlist' }),
+  ).toBeEnabled();
 
   const field = page.getByPlaceholder('you@company.com');
   await tabTo(page, field);
@@ -126,18 +122,19 @@ test('the join box takes a signup from the keyboard alone', async ({
   await page.keyboard.press('Enter');
 
   const card = page.locator('main .blueprint').first();
-  await expect(card.getByRole('heading')).toHaveText("You're on the list.");
+  const heading = card.getByRole('heading');
+  await expect(heading).toHaveText("You're on the list.");
   await expect(card).toContainText(email);
 
-  // What is *not* asserted, because it is not true:
-  // the card neither takes focus nor announces
-  // itself, so a screen-reader user hears nothing
-  // back and their next Tab restarts at the top of
-  // the page. Pinning the gap as though it were the
-  // design would be worse than leaving it named
-  // here. Fixing it is a change to mboss-web —
-  // either move focus to the card's heading, or give
-  // it role="status".
+  // The card replaces the form the reader was
+  // standing in, so focus has nowhere to go but the
+  // body unless it is sent somewhere: a screen
+  // reader would announce nothing back, and the next
+  // Tab would restart at the top of the page. The
+  // heading takes it instead, which answers both at
+  // once — the card is read out, and Tab carries on
+  // from where the reader actually is.
+  await expect(heading).toBeFocused();
 });
 
 test('the join button paints a focus ring for the keyboard', async ({
