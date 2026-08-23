@@ -54,8 +54,9 @@ secret produces a cookie the app reads as "not signed in".
 Two couplings follow from that, and both are quiet when they break:
 
 - **`AUTH_SECRET` must match the stack's.** The default here is
-  `dev-auth-secret`, which is also the compose default. Set the variable in
-  both places if you change it.
+  `dev-auth-secret`, which is also what `mboss-web/.env.local` carries and the
+  compose stack reads from there. Set the variable in both places if you
+  change it.
 - **`next-auth` is pinned to the exact version `mboss-web` resolved**
   (`5.0.0-beta.32`). The session cookie is an encrypted JWE whose format and
   salt belong to the library, so a beta bump on one side alone breaks the

@@ -21,7 +21,8 @@ const COOKIE_NAME = 'authjs.session-token';
 
 /**
  * The compose stack's AUTH_SECRET. The default lives
- * in the superproject's docker-compose.yml; set the
+ * in mboss-web/.env.local, which the superproject's
+ * docker-compose.yml reads directly; set the
  * variable here too when running against a stack
  * that overrides it.
  */
