@@ -73,7 +73,11 @@ const RUNS_VIEW_CAPTION =
 test('the landing page carries its copy verbatim', async ({ page }) => {
   await page.goto('/');
 
-  const nav = page.locator('nav');
+  // The header nav is a direct child of body; the
+  // footer's own nav (its Docs/Changelog/Admin links)
+  // sits nested inside <footer>, so this stays unique
+  // now that the page has two <nav> elements.
+  const nav = page.locator('body > nav');
   for (const line of NAV_COPY) {
     await expect(nav, line).toContainText(line);
   }
@@ -128,7 +132,6 @@ test('the page sells nothing it does not have', async ({ page }) => {
   for (const absent of ['pricing', 'per month', 'testimonial', 'compare']) {
     expect(body, absent).not.toContain(absent);
   }
-  await expect(page.locator('footer')).toHaveCount(0);
 });
 
 test('the nav goes somewhere true', async ({ page }) => {
@@ -140,4 +143,28 @@ test('the nav goes somewhere true', async ({ page }) => {
       page.locator('main a[href^="https://github.com/ashtable/mboss"]'),
     ).toHaveCount(1);
   }
+});
+
+test('the footer closes the page and its Admin link goes somewhere true', async ({
+  page,
+}) => {
+  await page.goto('/');
+
+  const footer = page.locator('footer');
+  await expect(footer).toHaveCount(1);
+  await expect(footer).toContainText('mBoss');
+  await expect(footer).toContainText('Design durable apps with DBOS.');
+  await expect(footer).toContainText('© 2026 mBoss · hello@mboss.dev');
+
+  for (const label of ['Docs', 'Changelog', 'Admin']) {
+    await expect(
+      footer.getByRole('link', { name: label, exact: true }),
+    ).toHaveCount(1);
+  }
+
+  await footer.getByRole('link', { name: 'Admin', exact: true }).click();
+  await expect(page).toHaveURL(/\/admin$/);
+  await expect(
+    page.getByRole('heading', { name: 'Admin sign-in' }),
+  ).toBeVisible();
 });
