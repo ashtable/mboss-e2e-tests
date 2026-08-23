@@ -54,8 +54,9 @@ secret produces a cookie the app reads as "not signed in".
 Two couplings follow from that, and both are quiet when they break:
 
 - **`AUTH_SECRET` must match the stack's.** The default here is
-  `dev-auth-secret`, which is also the compose default. Set the variable in
-  both places if you change it.
+  `dev-auth-secret`, which is also what `mboss-web/.env.local` carries and the
+  compose stack reads from there. Set the variable in both places if you
+  change it.
 - **`next-auth` is pinned to the exact version `mboss-web` resolved**
   (`5.0.0-beta.32`). The session cookie is an encrypted JWE whose format and
   salt belong to the library, so a beta bump on one side alone breaks the
@@ -127,7 +128,7 @@ each shortcut costs more than the coverage is worth.
   SendGrid. Only the unusable-token paths are proved here — the page and the
   one-click endpoint — and the actions are proved at the unit layer in
   `mboss-web`. _The shortcut to refuse:_ minting a `wl.manage` token in the
-  suite from the compose default `LINK_KEYS`. It is forty lines of
+  suite from the `LINK_KEYS` the stack runs on. It is forty lines of
   `node:crypto` away and it would work. A suite that mints its own links stops
   testing the minting.
 - **The wrong-tenant sign-in rejection.** Driving it needs a mock OIDC issuer
