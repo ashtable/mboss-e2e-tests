@@ -128,7 +128,7 @@ each shortcut costs more than the coverage is worth.
   SendGrid. Only the unusable-token paths are proved here — the page and the
   one-click endpoint — and the actions are proved at the unit layer in
   `mboss-web`. _The shortcut to refuse:_ minting a `wl.manage` token in the
-  suite from the compose default `LINK_KEYS`. It is forty lines of
+  suite from the `LINK_KEYS` the stack runs on. It is forty lines of
   `node:crypto` away and it would work. A suite that mints its own links stops
   testing the minting.
 - **The wrong-tenant sign-in rejection.** Driving it needs a mock OIDC issuer
