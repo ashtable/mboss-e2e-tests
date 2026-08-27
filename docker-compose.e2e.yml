@@ -1,0 +1,226 @@
+# The e2e stack: the same six-service topology the
+# root compose file runs, with the two outside
+# services replaced by fixtures and every value
+# written down here.
+#
+# No `env_file:` anywhere, on purpose. All three
+# service repos gitignore their own .env, so a CI
+# checkout has none of them — and a fixture that
+# only boots on a machine with hand-populated
+# secrets is not a fixture. Everything below is
+# either a made-up test credential or a fact about
+# this network, so there is nothing to hide and
+# nothing to populate.
+#
+# Every published port differs from the root dev
+# stack's, so `docker compose up` and
+# `npm run stack:up` can run side by side. A
+# harness you have to tear the dev stack down to
+# run is a harness people stop running.
+#
+#   web       3100  (dev: 3000)
+#   postgres  5433  (dev: 5432)
+#   mailsink  8025  — no dev equivalent
+#   oidc-mock 8443 + 8081  — no dev equivalent
+#
+# The two fixtures stand in for the two services
+# this suite must not reach: `mailsink` is the
+# Twilio Email API, `oidc-mock` is one Entra
+# tenant. Both are in ./fixtures, both are
+# dependency-free node:http servers, and both are
+# covered by the vitest suite that runs without
+# any of this.
+name: mboss-e2e
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: mboss
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mboss
+    ports: ['127.0.0.1:5433:5432']
+    # In RAM and gone with the container. A suite
+    # that truncates before every spec file has
+    # nothing worth keeping between runs, and a
+    # named volume would only be a way to inherit
+    # yesterday's rows.
+    tmpfs: ['/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d mboss']
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  # The worker starts before the api, because DBOS
+  # creates its system schema at launch and the
+  # api's DBOSClient answers 500 enqueueing into a
+  # schema that does not exist yet.
+  #
+  # No healthcheck: the worker binds no port, so
+  # there is nothing to poll, and it needs none —
+  # enqueues are durable, so a worker still booting
+  # only delays an email into a window the specs'
+  # bounded polls already absorb.
+  #
+  # No `restart:` policy either, and that one is
+  # load-bearing: broadcast-crash-resume kills this
+  # container and starts it again itself, and a
+  # restart policy would race it.
+  dbos:
+    build: ./mboss-nodejs-dbos
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://postgres:mboss@postgres:5432/mboss
+      API_BASE_URL: http://api:3001
+      INTERNAL_API_TOKEN: e2e-internal-api-token
+      LINK_KEYS: k1:0000000000000000000000000000000000000000000000000000000000000001
+      TWILIO_API_KEY: SKe2e0000
+      TWILIO_API_SECRET: e2e-twilio-secret
+      TWILIO_EMAIL_BASE_URL: http://mailsink:8025
+      # Offsets, not gaps: pass one at 2s and pass
+      # two at 5s, so a full bounce scan finishes
+      # inside a spec's patience instead of the
+      # production hour and two days.
+      BOUNCE_SCAN_DELAYS_S: 2,5
+      MAIL_FROM: hello@mboss.dev
+      # Every manage and unsubscribe link in every
+      # outgoing email is minted against this
+      # origin, so it has to name the published web
+      # port — the specs follow those links.
+      SITE_URL: http://localhost:3100
+
+  api:
+    build: ./mboss-nodejs-api
+    depends_on:
+      postgres: { condition: service_healthy }
+      dbos: { condition: service_started }
+    environment:
+      DATABASE_URL: postgres://postgres:mboss@postgres:5432/mboss
+      DBOS_SYSTEM_DATABASE_URL: postgres://postgres:mboss@postgres:5432/mboss
+      WEB_SERVICE_TOKEN: e2e-web-service-token
+      INTERNAL_API_TOKEN: e2e-internal-api-token
+      LINK_KEYS: k1:0000000000000000000000000000000000000000000000000000000000000001
+      PORT: 3001
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3001/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build: ./mboss-web
+    depends_on:
+      api: { condition: service_healthy }
+      oidc-mock: { condition: service_healthy }
+    ports: ['3100:3000']
+    # The mock's self-signed certificate, mounted
+    # so NODE_EXTRA_CA_CERTS below can name it.
+    volumes: ['./fixtures/oidc-mock/tls/cert.pem:/etc/ssl/oidc-mock.pem:ro']
+    environment:
+      API_BASE_URL: http://api:3001
+      WEB_SERVICE_TOKEN: e2e-web-service-token
+      NEXT_PUBLIC_SITE_URL: http://localhost:3100
+      AUTH_URL: http://localhost:3100/api/auth
+      # Anything goes: the entrypoint runs
+      # `next dev`, so NODE_ENV is not production
+      # and the length and dev-default refusals in
+      # mboss-web/src/env.ts never fire. Spelled
+      # `e2e-` rather than `dev-` to make it plain
+      # that nothing in this suite mints a cookie
+      # with it.
+      AUTH_SECRET: e2e-auth-secret
+      AUTH_MICROSOFT_ENTRA_ID_ID: e2e-client-id
+      AUTH_MICROSOFT_ENTRA_ID_SECRET: e2e-client-secret
+      # The tenant has to be GUID-shaped or
+      # issuerSchema refuses it outright.
+      AUTH_MICROSOFT_ENTRA_ID_ISSUER: https://oidc-mock:8443/00000000-0000-4000-8000-0000000000e2/v2.0
+      ADMIN_ALLOWED_DOMAIN: autoretryai.com
+      # Auth.js re-runs OIDC discovery over HTTPS
+      # after the token exchange and will not
+      # accept a certificate it cannot chain, so
+      # the mock's own certificate is installed as
+      # a trusted root. It is a CA:TRUE self-signed
+      # pair for exactly this reason.
+      NODE_EXTRA_CA_CERTS: /etc/ssl/oidc-mock.pem
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  mailsink:
+    build: ./fixtures/mailsink
+    ports: ['8025:8025']
+    environment:
+      PORT: 8025
+      MAILSINK_API_KEY: SKe2e0000
+      MAILSINK_API_SECRET: e2e-twilio-secret
+      # The origin the operationLocation it hands
+      # back is built on — reachable from the
+      # worker, which is the only thing that reads
+      # one.
+      PUBLIC_BASE_URL: http://mailsink:8025
+      BOUNCE_PREFIX: bounce-
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:8025/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  # Two ports on purpose. 8443 is the OIDC
+  # protocol surface and has to be HTTPS; 8081
+  # serves only /_test/* and /health over plain
+  # HTTP, so neither the healthcheck below nor the
+  # Playwright process handles a certificate at
+  # all.
+  #
+  # 8443 maps port-for-port because Chromium
+  # reaches the mock with
+  # `--host-resolver-rules=MAP oidc-mock 127.0.0.1`,
+  # which rewrites the host and leaves the port
+  # alone.
+  oidc-mock:
+    build: ./fixtures/oidc-mock
+    ports: ['8443:8443', '8081:8081']
+    environment:
+      PORT: 8443
+      CONTROL_PORT: 8081
+      OIDC_ISSUER: https://oidc-mock:8443/00000000-0000-4000-8000-0000000000e2/v2.0
+      OIDC_TENANT_ID: 00000000-0000-4000-8000-0000000000e2
+      OIDC_CLIENT_ID: e2e-client-id
+      OIDC_CLIENT_SECRET: e2e-client-secret
+      OIDC_DEFAULT_EMAIL: e2e@autoretryai.com
+      OIDC_DEFAULT_NAME: E2E Admin
+      TLS_CERT: /app/tls/cert.pem
+      TLS_KEY: /app/tls/key.pem
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:8081/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 2s
+      retries: 15
