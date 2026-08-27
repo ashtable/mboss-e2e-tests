@@ -257,3 +257,35 @@ export async function backdateConfirmationSentAt(
     [email, interval],
   );
 }
+
+/**
+ * The sendKey the API will derive for this
+ * subscriber's next confirmation — the whole-second
+ * epoch of their last one, or 0 when they have never
+ * been mailed.
+ *
+ * Computed in Postgres rather than from the `Date`
+ * on the row, and that is not fussiness. The column
+ * is `timestamp without time zone`, so `pg` parses
+ * it in the *client's* zone; the services all run
+ * with the container's UTC, while a developer's
+ * laptop does not. Reading the epoch off a
+ * JavaScript Date would therefore name a workflow
+ * that exists only in one time zone, and the spec
+ * would fail on a machine and pass in CI for a
+ * reason nothing on screen mentions.
+ */
+export async function confirmationSendKey(email: string): Promise<number> {
+  const { rows } = await pool().query<{ sendKey: string | null }>(
+    `SELECT floor(
+              extract(epoch from "confirmationEmailSentAt")
+            )::bigint::text AS "sendKey"
+       FROM "Subscriber" WHERE email = $1`,
+    [email],
+  );
+
+  const [row] = rows;
+  if (row === undefined) throw new Error(`no subscriber for ${email}`);
+
+  return row.sendKey === null ? 0 : Number(row.sendKey);
+}
