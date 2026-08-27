@@ -172,6 +172,80 @@ export async function subscriberByEmail(
   return rows[0];
 }
 
+export type BroadcastRow = {
+  id: string;
+  subject: string;
+  status: 'draft' | 'sending' | 'sent' | 'failed';
+  recipientCount: number | null;
+  createdBy: string;
+};
+
+/**
+ * The broadcast a spec just composed. Subjects
+ * carry the run id, so this is a lookup rather than
+ * a guess — and it is how a spec gets the id it
+ * needs for the delivery rows and the workflow.
+ */
+export async function broadcastBySubject(
+  subject: string,
+): Promise<BroadcastRow | undefined> {
+  const { rows } = await pool().query<BroadcastRow>(
+    `SELECT id, subject, status, "recipientCount", "createdBy"
+       FROM "Broadcast" WHERE subject = $1`,
+    [subject],
+  );
+
+  return rows[0];
+}
+
+/**
+ * Waits for a broadcast to stop moving: `sending`
+ * gone and no delivery row left pending.
+ *
+ * Both halves, because they settle separately — the
+ * worker flips the last delivery row and then calls
+ * complete, so a poll on the broadcast alone can
+ * catch it before its own rows agree. The timeout
+ * message counts what was still pending, which is
+ * the first thing anyone would ask.
+ */
+export async function waitForBroadcastComplete(
+  broadcastId: string,
+  timeoutMs = 60_000,
+): Promise<BroadcastRow> {
+  const deadline = Date.now() + timeoutMs;
+
+  for (;;) {
+    const { rows } = await pool().query<BroadcastRow>(
+      `SELECT id, subject, status, "recipientCount", "createdBy"
+         FROM "Broadcast" WHERE id = $1`,
+      [broadcastId],
+    );
+    const broadcast = rows[0];
+    const deliveries = await deliveriesFor(broadcastId);
+    const pending = deliveries.filter(
+      (delivery) => delivery.status === 'pending',
+    );
+
+    if (
+      broadcast !== undefined &&
+      broadcast.status !== 'sending' &&
+      broadcast.status !== 'draft' &&
+      pending.length === 0
+    )
+      return broadcast;
+
+    if (Date.now() >= deadline)
+      throw new Error(
+        `broadcast ${broadcastId} was ${broadcast?.status ?? 'missing'} ` +
+          `with ${pending.length}/${deliveries.length} deliveries pending ` +
+          `after ${timeoutMs}ms`,
+      );
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
 export async function deliveriesFor(
   broadcastId: string,
 ): Promise<DeliveryRow[]> {
