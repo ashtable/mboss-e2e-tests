@@ -27,7 +27,6 @@
     "@types/pg": "^8.21.0",
     "eslint": "^10.8.1",
     "eslint-config-prettier": "^10.1.8",
-    "next-auth": "5.0.0-beta.32",
     "pg": "^8.23.0",
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",

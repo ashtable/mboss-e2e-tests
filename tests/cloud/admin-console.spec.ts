@@ -1,21 +1,20 @@
 import { expect, test } from '@playwright/test';
 
-import { signInAs } from '../../helpers/session.js';
+import { signInAs } from '../../helpers/auth.js';
 
 /**
- * The console, driven by a genuine Auth.js session
- * minted with the stack's own secret. Nothing in
- * mboss-web knows a test is holding the cookie —
- * there is no bypass path to go stale, and a wrong
- * secret shows up here as "not signed in" rather
- * than as a green run against a gate that stopped
- * working.
+ * The console, reached the way an admin reaches
+ * it: the sign-in card, the Entra round trip
+ * against the oidc-mock, and whatever session
+ * mboss-web decides to hand back. Nothing here
+ * knows the stack's AUTH_SECRET, so there is no
+ * minted cookie to drift from the real thing.
  */
 
 const ADMIN = 'e2e@autoretryai.com';
 
-test.beforeEach(async ({ context, baseURL }) => {
-  await signInAs(context, ADMIN, baseURL ?? 'http://localhost:3000');
+test.beforeEach(async ({ page }) => {
+  await signInAs(page, { email: ADMIN });
 });
 
 test('the console names the signed-in admin', async ({ page }) => {
