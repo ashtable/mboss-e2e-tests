@@ -1,13 +1,15 @@
 name: CI
 on: [pull_request]
+
 jobs:
-  # Lint only. Every spec in this repo needs the
-  # superproject's compose stack — four services and
-  # a database — so there is nothing here CI can run
-  # hermetically. What it can do is prove the specs
-  # compile, and a spec that does not compile is a
-  # spec that never ran.
-  lint:
+  # The hermetic half. No submodules, no docker, no
+  # browsers — deliberately, because a checkout with
+  # none of them is the only place the claim that
+  # lint and the unit tests need nothing else is
+  # actually tested. If a helper or a fixture ever
+  # starts reaching for a container, this job is
+  # where it goes red.
+  lint-unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -17,3 +19,52 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run lint
+      - run: npm test
+
+  # The compose stack and the cloud specs.
+  # `submodules: recursive` is mandatory: web, api and
+  # dbos each COPY a second layer of nested submodules
+  # into their build context, so a non-recursive init
+  # leaves those empty and every image build fails on
+  # the COPY.
+  cloud:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      # --wait exits non-zero unless every service that
+      # declares a healthcheck reaches healthy, so a
+      # broken stack fails here, with the build output
+      # still readable, rather than as nine specs
+      # failing on connection refused.
+      - run: npm run stack:up
+      - run: npm run e2e:cloud
+
+      - name: Collect stack logs
+        if: failure()
+        run: docker compose -f docker-compose.e2e.yml logs --no-color > stack.log
+
+      - name: Upload traces, videos and stack logs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cloud-failure
+          path: |
+            playwright-report/
+            test-results/
+            stack.log
+
+      # Always, so a failed run leaves no containers or
+      # volumes behind for the next one to inherit.
+      - name: Tear the stack down
+        if: always()
+        run: npm run stack:down

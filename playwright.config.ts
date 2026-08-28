@@ -1,32 +1,71 @@
 import { defineConfig } from '@playwright/test';
+import { E2E_BASE_URL } from './helpers/stack.js';
 
 /**
- * One project, `cloud`, run against the stack the
- * superproject's `docker compose up` brings up.
+ * Three projects, one of which has tests.
  *
- * There is no `webServer` block: the suite drives a
- * composed web, api, worker and Postgres together,
- * and a runner that started a bare Next server would
- * be testing something the product never runs as.
- * Bring the stack up first; a spec against a stack
- * that is down fails as a connection refusal, which
- * is the honest failure.
+ * `cloud` drives the whole compose stack — web,
+ * api, worker, Postgres and the two fixtures
+ * together. There is no `webServer` block: a
+ * runner that started a bare Next server would be
+ * testing something the product never runs as.
+ * Bring the stack up with `npm run stack:up`
+ * first; global setup says so by name when it is
+ * down.
+ *
+ * `mcp` and `extension` are declared and empty.
+ * They exist so the two surfaces have a home to
+ * land in rather than a config change to remember,
+ * and `--list` is content with an empty testDir.
+ * There is no CI job for either yet, because
+ * `playwright test --project=mcp` against an empty
+ * project exits 1 with "No tests found" — a job
+ * that would be permanently red until the specs
+ * arrive.
  *
  * `retries: 0` and `workers: 1`, because a suite
  * that retries hides the flake it was written to
- * catch, and because these specs write rows a later
- * spec reads.
+ * catch, and because these specs write rows a
+ * later spec reads.
  */
 export default defineConfig({
   testDir: './tests',
+  globalSetup: './global-setup.ts',
   retries: 0,
   workers: 1,
+  timeout: 60_000,
+  expect: { timeout: 15_000 },
   reporter: 'list',
+  use: {
+    trace: 'retain-on-failure',
+    video: 'retain-on-failure',
+  },
   projects: [
     {
       name: 'cloud',
       testDir: './tests/cloud',
-      use: { baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:3000' },
+      use: {
+        baseURL: E2E_BASE_URL,
+        // The oidc mock serves TLS with a
+        // self-signed certificate, and a sign-in
+        // sends the browser through it. Trusting
+        // it properly would mean installing a root
+        // into the browser profile for one
+        // redirect that paints nothing.
+        ignoreHTTPSErrors: true,
+        launchOptions: {
+          // `oidc-mock` is a compose hostname, and
+          // the browser runs on the host. This
+          // maps the name without touching
+          // /etc/hosts — which is also why the
+          // compose file publishes 8443 to 8443:
+          // the rule rewrites the host and leaves
+          // the port alone.
+          args: ['--host-resolver-rules=MAP oidc-mock 127.0.0.1'],
+        },
+      },
     },
+    { name: 'mcp', testDir: './tests/mcp' },
+    { name: 'extension', testDir: './tests/extension' },
   ],
 });

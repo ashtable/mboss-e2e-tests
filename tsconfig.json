@@ -8,10 +8,24 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "verbatimModuleSyntax": true,
+    // The two fixture servers are run by `node
+    // server.ts` with no build step, so anything
+    // Node's type stripping cannot erase has to
+    // fail here rather than at container start.
+    "erasableSyntaxOnly": true,
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["tests", "helpers", "playwright.config.ts", "eslint.config.mjs"]
+  "include": [
+    "tests",
+    "helpers",
+    "test",
+    "fixtures",
+    "playwright.config.ts",
+    "vitest.config.ts",
+    "global-setup.ts",
+    "eslint.config.mjs"
+  ]
 }

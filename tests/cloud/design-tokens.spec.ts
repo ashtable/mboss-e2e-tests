@@ -134,10 +134,15 @@ test('the tokens the page paints with carry the design values', async ({
     `resolved to nothing: ${pruned.map(([name]) => name).join(', ')}`,
   ).toBeGreaterThanOrEqual(MINIMUM_RESOLVED);
 
-  for (const [index, [name, value]] of TOKENS.entries()) {
-    const actual = resolved[index];
-    if (actual === '') continue;
-    expect(actual, name).toBe(value);
+  const actual = await canonical(page, resolved);
+  const expected = await canonical(
+    page,
+    TOKENS.map(([, value]) => value),
+  );
+
+  for (const [index, [name]] of TOKENS.entries()) {
+    if (resolved[index] === '') continue;
+    expect(actual[index], name).toBe(expected[index]);
   }
 });
 
@@ -145,15 +150,17 @@ test('the load-bearing tokens reach the browser', async ({ page }) => {
   await page.goto('/');
 
   const names = ALWAYS_PRESENT.map(([name]) => name);
-  expect(await resolve(page, names)).toEqual(
-    ALWAYS_PRESENT.map(([, value]) => value),
+  expect(await canonical(page, await resolve(page, names))).toEqual(
+    await canonical(
+      page,
+      ALWAYS_PRESENT.map(([, value]) => value),
+    ),
   );
 
-  const [heading, body, mono] = await resolve(page, [
-    '--font-heading',
-    '--font-body',
-    '--font-mono',
-  ]);
+  const [heading, body, mono] = await canonical(
+    page,
+    await resolve(page, ['--font-heading', '--font-body', '--font-mono']),
+  );
   expect(heading).toContain('Barlow Condensed');
   expect(body).toContain('Barlow');
   expect(mono).toBe('ui-monospace, Menlo, monospace');
@@ -223,6 +230,68 @@ function resolve(page: Page, names: string[]): Promise<string[]> {
     const style = getComputedStyle(document.documentElement);
     return wanted.map((name) => style.getPropertyValue(name).trim());
   }, names);
+}
+
+/**
+ * Every value as the engine understands it, rather
+ * than as it was spelled.
+ *
+ * A custom property substitutes its text verbatim,
+ * so what comes back is whatever is in the
+ * stylesheet — and the container serves a production
+ * build, whose CSS minifier rewrites
+ * `color-mix(in srgb, #1d1f20 16%, transparent)` to
+ * the identical `#1d1f2029`. Chrome then reports the
+ * two in different notations, `rgba(...)` against
+ * `color(srgb ...)`, so comparing the declared text
+ * fails on a difference that is not there.
+ *
+ * Painting each value and reading the numbers back
+ * out asks what it means. It also stops this spec
+ * from quietly depending on whether the stylesheet
+ * happened to be minified, which is a property of
+ * the build and not of the design.
+ *
+ * The minifier closes up comma-separated lists the
+ * same way — `ui-monospace,Menlo,monospace` — so
+ * anything that is not a colour is respaced to one
+ * form. Both sides go through this, so a real change
+ * to a value still fails; only the spelling stops
+ * mattering.
+ */
+function canonical(page: Page, values: string[]): Promise<string[]> {
+  return page.evaluate((wanted: string[]) => {
+    const probe = document.createElement('span');
+    document.body.append(probe);
+    try {
+      const respace = (value: string) =>
+        value
+          .split(',')
+          .map((part) => part.trim())
+          .join(', ');
+
+      return wanted.map((value) => {
+        if (!CSS.supports('color', value)) return respace(value);
+        probe.style.color = '';
+        probe.style.color = value;
+        const computed = getComputedStyle(probe).color;
+        const [r = 0, g = 0, b = 0, alpha = 1] = (
+          computed.match(/[\d.]+/g) ?? []
+        ).map(Number);
+        // `color()` carries its channels as 0-1
+        // fractions; `rgb()` and `rgba()` as bytes.
+        const scale = computed.startsWith('color(') ? 255 : 1;
+        return [
+          Math.round(r * scale),
+          Math.round(g * scale),
+          Math.round(b * scale),
+          Math.round(alpha * 100) / 100,
+        ].join(',');
+      });
+    } finally {
+      probe.remove();
+    }
+  }, values);
 }
 
 function backgroundOfBody(page: Page): Promise<string> {
