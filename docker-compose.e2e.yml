@@ -40,6 +40,13 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: mboss
     ports: ['127.0.0.1:5433:5432']
+    # Every published port in this file binds to
+    # loopback only, this one included: the mailsink
+    # and oidc-mock control surfaces take unauthenticated
+    # requests by design, so publishing any of them to
+    # 0.0.0.0 would let another host on the same network
+    # rewrite the next sign-in identity or empty the
+    # mail sink mid-run.
     # In RAM and gone with the container. A suite
     # that truncates before every spec file has
     # nothing worth keeping between runs, and a
@@ -120,7 +127,7 @@ services:
     depends_on:
       api: { condition: service_healthy }
       oidc-mock: { condition: service_healthy }
-    ports: ['3100:3000']
+    ports: ['127.0.0.1:3100:3000']
     # The mock's self-signed certificate, mounted
     # so NODE_EXTRA_CA_CERTS below can name it.
     volumes: ['./fixtures/oidc-mock/tls/cert.pem:/etc/ssl/oidc-mock.pem:ro']
@@ -164,7 +171,7 @@ services:
 
   mailsink:
     build: ./fixtures/mailsink
-    ports: ['8025:8025']
+    ports: ['127.0.0.1:8025:8025']
     environment:
       PORT: 8025
       MAILSINK_API_KEY: SKe2e0000
@@ -201,7 +208,7 @@ services:
   # alone.
   oidc-mock:
     build: ./fixtures/oidc-mock
-    ports: ['8443:8443', '8081:8081']
+    ports: ['127.0.0.1:8443:8443', '127.0.0.1:8081:8081']
     environment:
       PORT: 8443
       CONTROL_PORT: 8081
