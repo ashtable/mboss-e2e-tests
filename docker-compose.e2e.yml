@@ -136,14 +136,17 @@ services:
       WEB_SERVICE_TOKEN: e2e-web-service-token
       NEXT_PUBLIC_SITE_URL: http://localhost:3100
       AUTH_URL: http://localhost:3100/api/auth
-      # Anything goes: the entrypoint runs
-      # `next dev`, so NODE_ENV is not production
-      # and the length and dev-default refusals in
-      # mboss-web/src/env.ts never fire. Spelled
-      # `e2e-` rather than `dev-` to make it plain
-      # that nothing in this suite mints a cookie
-      # with it.
-      AUTH_SECRET: e2e-auth-secret
+      # The image serves a production build now, so
+      # NODE_ENV is production and
+      # mboss-web/src/env.ts refuses a secret that
+      # is under 32 characters or equal to the
+      # readable `dev-auth-secret` default. This one
+      # is padded past that floor rather than made
+      # unguessable: nothing in this suite mints a
+      # cookie with it — every sign-in goes through
+      # the OIDC mock — and the `e2e-` prefix is
+      # there to say so.
+      AUTH_SECRET: e2e-auth-secret-padded-past-32-chars
       AUTH_MICROSOFT_ENTRA_ID_ID: e2e-client-id
       AUTH_MICROSOFT_ENTRA_ID_SECRET: e2e-client-secret
       # The tenant has to be GUID-shaped or
