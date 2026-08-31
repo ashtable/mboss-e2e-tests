@@ -33,9 +33,9 @@ The suite has no `webServer` block. A runner that started a bare Next server
 would be testing something the product never runs as. Global setup does not
 start the stack either — it probes the three addresses and names
 `npm run stack:up` when one is not answering, then warms `/` and `/admin`,
-because `web` runs `next dev` and the first compile of a route can outlast an
-action timeout on a cold container. A spec against a stack that is down fails
-as a connection refusal, which is the honest failure.
+because a cold container's first request to a route loads its bundle and opens
+its connections, which can outlast an action timeout. A spec against a stack
+that is down fails as a connection refusal, which is the honest failure.
 
 ## Scripts
 
@@ -68,7 +68,7 @@ hand-populated secrets is not a fixture.
 
 | Service     | Port                 | What it is                         |
 | ----------- | -------------------- | ---------------------------------- |
-| `web`       | `3100`               | `mboss-web` under `next dev`       |
+| `web`       | `3100`               | `mboss-web`, production build      |
 | `api`       | —                    | `mboss-nodejs-api`, internal only  |
 | `dbos`      | —                    | `mboss-nodejs-dbos`, binds no port |
 | `postgres`  | `5433`               | `postgres:17` on tmpfs, no volume  |
