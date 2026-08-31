@@ -8,7 +8,7 @@ import {
  * Two jobs, and neither of them is starting the
  * stack.
  *
- * First: prove the four addresses the suite talks
+ * First: prove the three addresses the suite talks
  * to are answering, and say `npm run stack:up`
  * when one is not. A spec that hits a stack which
  * is down fails as a connection refusal deep
@@ -17,11 +17,13 @@ import {
  * test runs.
  *
  * Second: warm the two routes the specs open
- * first. `web` runs `next dev`, which compiles a
- * route on its first request, and the first
- * compile of `/` or `/admin` can outlast an
- * ordinary action timeout on a cold container.
- * Paying it here means no spec pays it.
+ * first. The image serves a production build, so
+ * there is no compile to pay — but a cold
+ * container still loads a route's bundle and
+ * opens its connections on the first request, and
+ * on `/` or `/admin` that can outlast an ordinary
+ * action timeout. Paying it here means no spec
+ * pays it.
  *
  * Bringing the stack up is left to `stack:up`
  * deliberately: `up --wait` already gates on the
@@ -60,7 +62,7 @@ async function probe(url: string, what: string): Promise<void> {
 }
 
 /**
- * A compile, not an assertion. The response is
+ * A warm-up, not an assertion. The response is
  * dropped: `/admin` answers a sign-in card and
  * `/` a landing page, and which one arrives here
  * is a spec's business, not setup's.
