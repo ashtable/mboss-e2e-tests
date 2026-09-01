@@ -1,0 +1,115 @@
+{
+  "$schema": "https://mboss.dev/schemas/workflow-v1.json",
+  "version": 1,
+  "revision": 1,
+  "name": "crash_fixture",
+  "title": "Crash fixture",
+  "nodes": [
+    {
+      "id": "claim_filed",
+      "kind": "trigger",
+      "title": "Claim filed",
+      "config": {
+        "mode": "event",
+        "topic": "claim.filed",
+        "idempotencyKeyPath": "claimId",
+        "requesterEmailPath": "contact.email"
+      },
+      "out": "Claim"
+    },
+    {
+      "id": "open_case",
+      "kind": "step",
+      "title": "Open the case",
+      "handler": { "export": "openCase" },
+      "in": "Claim",
+      "out": "Case",
+      "config": {}
+    },
+    {
+      "id": "ask_details",
+      "kind": "emailSend",
+      "title": "Ask for the details",
+      "in": "Case",
+      "config": {
+        "to": "requestingUser",
+        "subject": "One more thing about your claim",
+        "bodyMarkdown": "We have opened your claim. Tell us a little more and we will settle it.",
+        "attach": {
+          "type": "form",
+          "form": {
+            "fields": [
+              {
+                "id": "note",
+                "label": "What happened?",
+                "type": "text",
+                "required": true
+              },
+              { "id": "urgent", "label": "Is this urgent?", "type": "yesNo" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "await_details",
+      "kind": "durableWait",
+      "title": "Wait for the details",
+      "config": {
+        "source": { "kind": "form", "email": "ask_details" },
+        "timeoutDays": 3,
+        "onTimeout": "abort"
+      },
+      "out": "Details"
+    },
+    {
+      "id": "settle_case",
+      "kind": "step",
+      "title": "Settle the case",
+      "handler": { "export": "settleCase" },
+      "in": "Details",
+      "out": "Settlement",
+      "config": {}
+    },
+    {
+      "id": "record_settlement",
+      "kind": "transaction",
+      "title": "Record the settlement",
+      "handler": { "export": "recordSettlement" },
+      "in": "Settlement",
+      "out": "Settlement",
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": { "node": "claim_filed", "port": "out" },
+      "to": { "node": "open_case" },
+      "type": "Claim"
+    },
+    {
+      "id": "e2",
+      "from": { "node": "open_case", "port": "out" },
+      "to": { "node": "ask_details" },
+      "type": "Case"
+    },
+    {
+      "id": "e3",
+      "from": { "node": "ask_details", "port": "out" },
+      "to": { "node": "await_details" }
+    },
+    {
+      "id": "e4",
+      "from": { "node": "await_details", "port": "out" },
+      "to": { "node": "settle_case" },
+      "type": "Details"
+    },
+    {
+      "id": "e5",
+      "from": { "node": "settle_case", "port": "out" },
+      "to": { "node": "record_settlement" },
+      "type": "Settlement"
+    }
+  ]
+}

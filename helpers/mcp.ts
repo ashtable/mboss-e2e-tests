@@ -1,4 +1,5 @@
 import { access } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { Client } from '@modelcontextprotocol/client';
@@ -37,6 +38,14 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 export const E2E_MCP_BUNDLE =
   process.env.E2E_MCP_BUNDLE ??
   fileURLToPath(new URL('../mboss-mcp-server/dist/server.js', import.meta.url));
+
+/**
+ * The one line beside it. A scaffolded project gets
+ * both, at `.mboss/mcp/`, which is how the
+ * extension will later tell a vendored copy from
+ * the current build.
+ */
+export const E2E_MCP_VERSION = join(dirname(E2E_MCP_BUNDLE), 'VERSION');
 
 /** What builds it, named in the failure that wants it. */
 export const MCP_BUILD_COMMAND = 'npm run mcp:build';
@@ -82,17 +91,25 @@ export type McpSession = {
  * `agent` is the client's own name. The server
  * records it on a proposal as who proposed the
  * edit, so a spec that cares can name itself.
+ *
+ * `server` is which copy of the bundle to run. It
+ * defaults to the build, and the durability spec
+ * passes the copy vendored into the project it
+ * scaffolded — the file at the path a real project
+ * runs it from, which is a stronger thing to have
+ * driven than the build directory.
  */
 export async function connectToBundle(
   cwd: string,
   agent = 'the e2e suite',
+  server = E2E_MCP_BUNDLE,
 ): Promise<McpSession> {
   const client = new Client({ name: agent, version: '0.0.0' });
 
   await client.connect(
     new StdioClientTransport({
       command: process.execPath,
-      args: [E2E_MCP_BUNDLE],
+      args: [server],
       cwd,
     }),
   );
