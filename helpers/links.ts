@@ -45,6 +45,30 @@ export function manageUrlFrom(html: string): string {
   );
 }
 
+/** `…/f/<token>`, with nothing after the token. */
+const FORM_PATH = /\/f\/[^/?#]+$/;
+
+/**
+ * The form URL out of a generated app's email —
+ * the one its button points at. Approvals mint an
+ * ordinary form token too, so this finds both.
+ *
+ * Read out of the captured HTML and never minted,
+ * for the same reason as the manage link: a link
+ * the suite made itself would verify whatever the
+ * app had done.
+ */
+export function formUrlFrom(html: string): string {
+  for (const match of html.matchAll(HREF)) {
+    const href = match[1];
+    if (href !== undefined && FORM_PATH.test(href)) return href;
+  }
+
+  throw new LinkExtractionError(
+    'no /f/<token> link in the email — the form was never attached',
+  );
+}
+
 /**
  * The token a signed link carries. The manage link
  * and the one-click unsubscribe URL are minted

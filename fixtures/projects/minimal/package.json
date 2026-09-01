@@ -1,0 +1,7 @@
+{
+  "name": "mboss-minimal-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A checked-in mBoss project the MCP specs drive over stdio."
+}

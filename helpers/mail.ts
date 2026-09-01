@@ -1,4 +1,8 @@
+import { fileURLToPath } from 'node:url';
+
 import type { CapturedMessage } from '../fixtures/mailsink/server.js';
+
+import { startAndWait, type HostProcess } from './host.js';
 
 /**
  * The suite's inbox.
@@ -12,10 +16,68 @@ import type { CapturedMessage } from '../fixtures/mailsink/server.js';
  * so a field that changes shape there fails at
  * lint here rather than at an assertion on
  * undefined.
+ *
+ * There are two sinks, not one. The cloud stack
+ * runs the fixture as a compose service at the
+ * address below; the durability spec runs the same
+ * file as a host process beside the generated app
+ * it is watching, because both of those are host
+ * processes reaching each other on loopback. So
+ * every read takes the sink to read, defaulting to
+ * the compose one.
  */
 
 export const E2E_MAILSINK_URL =
   process.env.E2E_MAILSINK_URL ?? 'http://127.0.0.1:8025';
+
+/** The fixture, run as it is — no build step. */
+const MAILSINK_SERVER = fileURLToPath(
+  new URL('../fixtures/mailsink/server.ts', import.meta.url),
+);
+
+export type Mailsink = {
+  /** Where it answers, and what an app's
+   *  `TWILIO_EMAIL_BASE_URL` is set to. */
+  url: string;
+  process: HostProcess;
+};
+
+/**
+ * Starts the mail fixture on this machine.
+ *
+ * The credentials are the app's own, read out of
+ * the `.env` its scaffold wrote rather than chosen
+ * here: the sink rejects a send whose Basic auth
+ * does not match, so passing them through is what
+ * makes the pair a real check on the scaffolded
+ * values instead of a value the test picked twice.
+ */
+export async function startMailsink(options: {
+  port: number;
+  apiKey: string;
+  apiSecret: string;
+}): Promise<Mailsink> {
+  const url = `http://127.0.0.1:${options.port}`;
+
+  const running = await startAndWait(
+    {
+      command: process.execPath,
+      args: [MAILSINK_SERVER],
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
+      env: {
+        PORT: String(options.port),
+        MAILSINK_API_KEY: options.apiKey,
+        MAILSINK_API_SECRET: options.apiSecret,
+        PUBLIC_BASE_URL: url,
+      },
+    },
+    `${url}/health`,
+    'the mailsink fixture',
+    { timeoutMs: 15_000 },
+  );
+
+  return { url, process: running };
+}
 
 export type MessageFilter = {
   to?: string;
@@ -42,10 +104,9 @@ export function messagesQuery(filter: MessageFilter): string {
 /** Everything captured so far, oldest first. */
 export async function messages(
   filter: MessageFilter = {},
+  at = E2E_MAILSINK_URL,
 ): Promise<CapturedMessage[]> {
-  const response = await fetch(
-    `${E2E_MAILSINK_URL}/messages${messagesQuery(filter)}`,
-  );
+  const response = await fetch(`${at}/messages${messagesQuery(filter)}`);
   if (!response.ok) throw new Error(`the mailsink answered ${response.status}`);
 
   const { messages: captured } = (await response.json()) as {
@@ -69,11 +130,12 @@ export async function messages(
 export async function waitForMessage(
   filter: MessageFilter,
   timeoutMs = 30_000,
+  at = E2E_MAILSINK_URL,
 ): Promise<CapturedMessage> {
   const deadline = Date.now() + timeoutMs;
 
   for (;;) {
-    const [first] = await messages(filter);
+    const [first] = await messages(filter, at);
     if (first !== undefined) return first;
 
     if (Date.now() >= deadline)
@@ -86,8 +148,8 @@ export async function waitForMessage(
 }
 
 /** Empties the inbox and clears any send delay. */
-export async function clear(): Promise<void> {
-  const response = await fetch(`${E2E_MAILSINK_URL}/messages`, {
+export async function clear(at = E2E_MAILSINK_URL): Promise<void> {
+  const response = await fetch(`${at}/messages`, {
     method: 'DELETE',
   });
   if (!response.ok)

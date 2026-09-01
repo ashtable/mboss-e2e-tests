@@ -1,3 +1,6 @@
+import type { FullConfig } from '@playwright/test';
+
+import { assertBundleBuilt } from './helpers/mcp.js';
 import {
   E2E_BASE_URL,
   E2E_MAILSINK_URL,
@@ -5,8 +8,73 @@ import {
 } from './helpers/stack.js';
 
 /**
- * Two jobs, and neither of them is starting the
- * stack.
+ * One check per suite that is actually about to
+ * run, and none of them starts anything.
+ *
+ * Playwright runs this once per invocation
+ * whatever `--project` was given, and the suites
+ * need different things: `cloud` needs the compose
+ * stack, `mcp` needs the built MCP bundle and no
+ * containers at all. Checking for all of it every
+ * time is what made `npm run e2e:mcp` fail on a
+ * mailsink no MCP spec talks to.
+ *
+ * Bringing any of it up is left to `stack:up` and
+ * `mcp:build` deliberately: `up --wait` already
+ * gates on the healthchecks, so a probe here would
+ * be redundant, and building images or bundles
+ * inside global setup would bury the build output
+ * behind Playwright's reporter and make a one-spec
+ * run take minutes.
+ */
+export default async function globalSetup(config: FullConfig): Promise<void> {
+  const declared = config.projects.map((project) => project.name);
+  const running = requestedProjects(process.argv) ?? new Set(declared);
+
+  if (running.has('cloud')) await forCloud();
+  if (running.has('mcp')) await assertBundleBuilt();
+}
+
+/**
+ * The projects `--project` asked for, or
+ * `undefined` when it asked for none — which means
+ * every declared one.
+ *
+ * Read off the command line rather than off the
+ * config, because `FullConfig.projects` is the
+ * declared list and not the filtered one: global
+ * setup is handed all three names even under
+ * `--project=mcp`. The flag's two spellings are
+ * Playwright's own — a value joined by `=`, or one
+ * or more following words, since its CLI takes
+ * `--project` variadically.
+ */
+export function requestedProjects(
+  argv: readonly string[],
+): Set<string> | undefined {
+  const names = new Set<string>();
+
+  for (let at = 0; at < argv.length; at += 1) {
+    const arg = argv[at] ?? '';
+
+    if (arg.startsWith('--project=')) {
+      names.add(arg.slice('--project='.length));
+      continue;
+    }
+
+    if (arg !== '--project') continue;
+
+    while (at + 1 < argv.length && !(argv[at + 1] ?? '').startsWith('-')) {
+      at += 1;
+      names.add(argv[at] ?? '');
+    }
+  }
+
+  return names.size === 0 ? undefined : names;
+}
+
+/**
+ * Two jobs.
  *
  * First: prove the three addresses the suite talks
  * to are answering, and say `npm run stack:up`
@@ -24,16 +92,8 @@ import {
  * on `/` or `/admin` that can outlast an ordinary
  * action timeout. Paying it here means no spec
  * pays it.
- *
- * Bringing the stack up is left to `stack:up`
- * deliberately: `up --wait` already gates on the
- * healthchecks, so a probe here would be
- * redundant, and building three images inside
- * global setup would bury the build output behind
- * Playwright's reporter and make a one-spec run
- * take minutes.
  */
-export default async function globalSetup(): Promise<void> {
+async function forCloud(): Promise<void> {
   await probe(`${E2E_MAILSINK_URL}/health`, 'the mailsink fixture');
   await probe(`${E2E_OIDC_CONTROL_URL}/health`, 'the oidc-mock fixture');
   await probe(`${E2E_BASE_URL}/healthz`, 'the web service');

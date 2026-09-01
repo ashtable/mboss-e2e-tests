@@ -1,16 +1,21 @@
 # mboss-e2e-tests
 
-The browser-driven suite for mBoss. It brings up the whole cloud stack — the
+The top of mBoss's test pyramid. It brings up the whole cloud stack — the
 Next.js app, the private API, the DBOS worker, Postgres and two fixtures
 standing in for the mail provider and the Entra tenant — and drives it through
-a real browser, asserting on what those services actually did.
+a real browser, asserting on what those services actually did. It also drives
+the MCP server's shipped bundle as real child processes over stdio, which is
+where packaging and cross-process behaviour become visible.
 
-Two suites live here, and they are separate on purpose:
+Three suites live here, and they are separate on purpose:
 
 - **`npm test`** — vitest over the helpers and the two fixtures. No containers,
   no submodules, no browsers. Runs on a bare checkout.
 - **`npm run e2e:cloud`** — Playwright over the compose stack. Needs
   `npm run stack:up` first.
+- **`npm run e2e:mcp`** — Playwright over the MCP bundle. No browser; needs
+  `npm run mcp:build` first, and Docker, because one of its specs scaffolds a
+  whole app and brings up that app's own Postgres.
 
 ## Run
 
@@ -23,19 +28,29 @@ npx playwright install chromium
 npm run stack:up      # docker compose up --build --wait
 npm run e2e:cloud
 npm run stack:down
+
+npm run mcp:build     # npm ci + esbuild inside mboss-mcp-server
+npm run e2e:mcp
 ```
 
 `stack:up` builds three service images from the nested submodules, so the first
 run takes a few minutes. `--wait` is itself an assertion: it exits non-zero
 unless every service that declares a healthcheck reaches healthy.
 
+`mcp:build` runs `npm ci` and the esbuild bundle inside `mboss-mcp-server/`,
+leaving `dist/server.js` and `dist/VERSION` — the single file a project vendors
+and the one line the extension compares against.
+
 The suite has no `webServer` block. A runner that started a bare Next server
-would be testing something the product never runs as. Global setup does not
-start the stack either — it probes the three addresses and names
-`npm run stack:up` when one is not answering, then warms `/` and `/admin`,
-because a cold container's first request to a route loads its bundle and opens
-its connections, which can outlast an action timeout. A spec against a stack
-that is down fails as a connection refusal, which is the honest failure.
+would be testing something the product never runs as. Global setup starts
+nothing either, and checks only what the run is about: for `cloud` it probes
+the three addresses and names `npm run stack:up` when one is not answering,
+then warms `/` and `/admin`, because a cold container's first request to a
+route loads its bundle and opens its connections, which can outlast an action
+timeout; for `mcp` it checks the bundle is built and names `npm run mcp:build`
+when it is not. Which projects a run covers is read off `--project` on the
+command line — `FullConfig.projects` is the declared list, not the filtered
+one, so reading it would make `e2e:mcp` demand a mailsink no MCP spec talks to.
 
 ## Scripts
 
@@ -43,21 +58,29 @@ that is down fails as a connection refusal, which is the honest failure.
 | -------------------- | ------------------------------------------------ |
 | `npm test`           | vitest — helpers and fixtures, no containers     |
 | `npm run e2e:cloud`  | The `cloud` project against the compose stack    |
-| `npm run e2e:mcp`    | The `mcp` project — declared, no specs yet       |
+| `npm run e2e:mcp`    | The `mcp` project against the built bundle       |
 | `npm run e2e:ext`    | The `extension` project — declared, no specs yet |
+| `npm run mcp:build`  | Build the MCP bundle from the nested checkout    |
 | `npm run stack:up`   | `docker compose up --build --wait`               |
 | `npm run stack:down` | `docker compose down -v`                         |
 | `npm run stack:logs` | Follow every service's log                       |
 | `npm run lint`       | `tsc --noEmit`, ESLint, a Prettier check         |
 | `npm run format`     | Rewrite with Prettier                            |
 
-CI runs two jobs. `lint-unit` checks out without submodules and runs
+CI runs three jobs. `lint-unit` checks out without submodules and runs
 `npm ci && npm run lint && npm test` — which is the only place the hermetic
 claim is actually tested. `cloud` checks out `submodules: recursive`, brings
 the stack up and runs the suite, uploading traces, videos and compose logs on
-failure. There is no `mcp` or `extension` job: `playwright test --project=mcp`
-against an empty project exits 1 with "No tests found", so a job for either
-would be permanently red until its specs arrive.
+failure. `mcp` also checks out `submodules: recursive` — for a different
+reason, since `mboss-mcp-server` nests core and skills and the bundle inlines
+core's source — builds the bundle and runs the MCP specs; it installs no
+browser, because nothing in that project takes a `page`, but it does need
+Docker, because `generated-app-durability` brings up the app it scaffolded. It
+also does a full `npm install` inside that app, which is the slow part of the
+job and is unavoidable: the app has to actually run. There is still no
+`extension` job: `playwright test --project=extension` against an empty project
+exits 1 with "No tests found", so a job for it would be permanently red until
+its specs arrive.
 
 ## The stack
 
@@ -78,6 +101,15 @@ hand-populated secrets is not a fixture.
 **Every published port differs from the root dev stack's**, so
 `docker compose up` and `npm run stack:up` can run side by side. A harness you
 have to tear the dev stack down to run is a harness people stop running.
+
+There is a third set. `generated-app-durability` scaffolds an app and runs it
+on this machine, so it needs a Postgres, an HTTP port and a mail sink of its
+own: `5434`, `3200` and `8125`, chosen to miss both the dev stack's
+`5432`/`3000` and this one's `5433`/`3100`. The scaffold emits `5432`, and
+compose concatenates `ports` when it merges — so the spec writes a
+`docker-compose.override.yml` beside it using `!override`, which replaces the
+list instead of adding to it. The same file a person would write, for the same
+reason.
 
 `dbos` deliberately has no healthcheck — it binds no port, and enqueues are
 durable, so a worker still booting only delays an email into a window the
@@ -119,6 +151,12 @@ A send missing `to[0].address` or `content.subject` is refused with a 400. A
 wire regression in the mailer has to go red at the send rather than be captured
 silently.
 
+It runs twice over. The cloud stack runs it as a compose service;
+`generated-app-durability` runs the same file as a host process beside the app
+it is watching, on the credentials that app's own `.env` carries — so the Basic
+auth the sink checks is a real check on what the scaffold minted. Every read in
+`helpers/mail.ts` takes the sink to read, defaulting to the compose one.
+
 ### `fixtures/oidc-mock` — one Entra tenant
 
 Discovery, JWKS, `authorize`, `token` and `userinfo` for a single tenant, plus
@@ -148,15 +186,99 @@ the authorize request sent one (Auth.js uses `checks: ['pkce']`, so
 ## Nothing here mints anything
 
 The suite holds no `LINK_KEYS` value and never imports `mintLink`. Every
-manage and unsubscribe link a spec follows was written by the worker into an
+manage, unsubscribe and form link a spec follows was written by an app into an
 email the mailsink captured, and read back out of the HTML by
 `helpers/links.ts`. A harness that mints its own links stops testing the
-minting.
+minting. The `/f/<token>` link the durability spec follows across a crash was
+signed with a ring the scaffold minted and this suite has never seen.
 
 The same goes for sessions. There is no cookie minter and no `next-auth`
 dependency: `helpers/auth.ts` sets an identity on the mock and drives the real
 three-redirect round trip, so the tenant check, the domain check and the
 session cookie are all tested rather than assumed.
+
+## The MCP bundle
+
+`tests/mcp/` drives the artifact `mboss-mcp-server` ships: one 18MB esbuild
+bundle with no `node_modules` beside it, vendored into a project as
+`.mboss/mcp/server.js` and started by the project's own Node. Nothing here
+imports that repo's TypeScript — the nested checkout is a build context, the
+same as the three service repos. `helpers/mcp.ts` spawns the file and speaks
+the protocol to it with the official SDK's client.
+
+The fixtures under `fixtures/projects/` hold inputs only — no `node_modules`
+and nothing built — and they are used two ways. `helpers/project.ts` copies
+`minimal` into a scratch directory, which is what makes twenty-five rounds of a
+race a directory read rather than an install; `generated-app-durability`
+scaffolds a fresh project and copies `crash-fixture`'s document and handlers
+into it, which is what keeps the scaffold itself under test.
+
+`minimal` installs nothing on purpose, so the type-check gate `project_build`
+runs really runs and the only module resolutions it cannot make are
+`@dbos-inc/dbos-sdk` and `vitest`; `mcp-bundle` asserts those two are the _only_
+complaints, which is what keeps a real type error from hiding behind them. The
+scaffolded project is fully installed, and its `project_build` has to come back
+clean.
+
+**`mcp-bundle.spec.ts`** — create → dry-run → apply → get → rename → scaffold →
+build over stdio, asserting the proposal file on disk and its status flipping
+to `applied`, the revision reaching 2 then 3, the one edge endpoint that moved
+with a renamed node, the scaffolded handler's signature typed from the block's
+own `in`/`out`, and the generated workflow carrying its DO-NOT-EDIT header and
+importing the handler. Then all five resources, and every structured failure
+code over the wire — `WORKFLOW_NOT_FOUND`, `NO_CURRENT_WORKFLOW`,
+`REVISION_CONFLICT`, `VALIDATION_FAILED`, `PROPOSAL_NOT_FOUND`,
+`PROPOSAL_STALE`, `NOT_AN_MBOSS_PROJECT`.
+
+**`lock-contention.spec.ts`** — two server processes racing one apply from the
+same `baseRevision`, twenty-five rounds. Each round: exactly one winner, the
+loser refused with `REVISION_CONFLICT` rather than hung or applied, the file
+still parsing, the revision advanced exactly once, the winner's whole document
+on disk rather than a mixture of both, and no `.mboss/.lock` left behind. Any
+single round fails the spec — a racy lock fails probabilistically, so the
+repetition is the assertion. Plus the two lock cases either side of it: a lock
+older than ten seconds is presumed abandoned and taken over, and a fresh one is
+waited behind until it is released.
+
+**`generated-app-durability.spec.ts`** — the promise, tested as one system, and
+the only place a generated app has ever run. The scaffold writes a project (the
+bundle travelling into it at `.mboss/mcp/server.js`, the path a real one is
+vendored to); the checked-in `crash_fixture` document is applied through that
+copy; `project_build` regenerates and type-checks it against the real installed
+SDK; its own compose Postgres comes up, its migration runs, and the app starts
+as a **host process**. Then: an event through `POST /events/:topic` under the
+secret the scaffold minted, a form email caught by a sink running beside it, the
+`/f/<token>` link read out of that mail — and the process killed with `SIGKILL`
+while the run sits parked on the form. After a restart the same link still
+opens, the form submits, and the run reaches `SUCCESS`.
+
+What it then asserts is the point: every step that had finished before the kill
+carries the finish time it had then, so recovery read its checkpoints back
+rather than calling the handlers again; the transaction has exactly one row; the
+claimant got exactly one email; and the run's recovery count went up, which is
+what makes this a crash test rather than a long way of running a workflow. It
+was watched failing with the kill taken out — everything else still passed and
+the count stayed at one. Finally `project_debug`, driven through the bundle,
+answers against a schema DBOS itself created — the first and only check on the
+column names that tool maps by hand.
+
+A second test builds the emitted `Dockerfile`. A packaging assertion only; the
+image is never run, because what the durability path needs is a process this
+spec can kill.
+
+## Scaffolding, across a process boundary
+
+`scaffolder/scaffold-project.mjs` is how the durability spec gets a real
+project. Nothing in this repository may _import_ `mboss-core` — the nested
+checkouts are build contexts, and `lint-unit` runs `tsc` on a tree that has none
+of them — so the scaffold is reached by running it instead. Plain Node strips
+the types out of core's TypeScript for free but will not follow a `.js`
+specifier to a `.ts` file, so the one thing that script adds is that mapping. It
+is a `.mjs` on purpose: being untyped keeps it honest about being a script
+rather than looking like a module `tsc` checks, which it is not.
+
+Checking in a snapshot of the scaffold's output would have been simpler and
+would have stopped testing the scaffold on the day it changed.
 
 ## What each spec proves
 
@@ -241,10 +363,18 @@ own suite. Moving them needs an `mboss-web` commit, and deleting them would
 lose real coverage nothing replaces — so they stay here, named, until someone
 moves them.
 
-**The `mcp` and `extension` projects are declared and empty.** They exist so
-the two surfaces have a home to land in rather than a config change to
-remember. `playwright test --list` is content with an empty `testDir`; running
-one is not, which is why neither has a CI job yet.
+**The `extension` project is declared and empty.** It exists so that surface
+has a home to land in rather than a config change to remember. `playwright test
+--list` is content with an empty `testDir`; running one is not, which is why it
+has no CI job yet.
+
+**The `minimal` fixture project installs nothing.** `project_build`'s type-check
+therefore cannot resolve `@dbos-inc/dbos-sdk` or `vitest`, and `mcp-bundle`
+asserts around exactly those two by name. That is deliberate — it keeps
+twenty-five rounds of `lock-contention` copying a directory rather than
+installing one — and `generated-app-durability` covers the other side: its
+project is fully installed, so its `project_build` has to come back with
+`tscErrors` empty.
 
 **`https://` on the unsubscribe URL is not asserted.** This harness's
 `SITE_URL` is `http://localhost:3100` by design. Scheme-on-the-wire belongs to

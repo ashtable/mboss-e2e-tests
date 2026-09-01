@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import {
   LinkExtractionError,
+  formUrlFrom,
   listUnsubscribeOf,
   manageUrlFrom,
   tokenOf,
@@ -10,9 +11,10 @@ import {
 /**
  * The suite reads signed links out of the mail it
  * captured; it never mints one. That is the whole
- * point of these three functions, so the shapes
+ * point of these four functions, so the shapes
  * they parse are the shapes mBoss actually emits —
- * the address line `renderShell` writes and the
+ * the address line `renderShell` writes, the form
+ * button a generated app's template writes, and the
  * RFC 8058 header pair `listUnsubscribeHeaders`
  * writes — pasted here rather than paraphrased.
  */
@@ -51,6 +53,45 @@ describe('manageUrlFrom', () => {
       '<a href="https://mboss.dev/docs">docs</a>\n' + addressLine(href);
 
     expect(manageUrlFrom(html)).toBe(href);
+  });
+});
+
+describe('formUrlFrom', () => {
+  /** The button a generated app's form email
+   *  carries, verbatim from the template's own
+   *  snapshot. */
+  function formButton(href: string): string {
+    return (
+      '<div style="text-align:center;margin-top:16px">' +
+      `<a href="${href}" style="display:inline-block;background:#5980a6;` +
+      "color:#fff;font:600 12.5px 'Barlow Condensed', system-ui, sans-serif;" +
+      'letter-spacing:.05em;padding:9px 18px;text-decoration:none">' +
+      'Open your secure form</a></div>'
+    );
+  }
+
+  test('pulls the form URL out of the button', () => {
+    const href = `http://127.0.0.1:3200/f/${TOKEN}`;
+
+    expect(formUrlFrom(formButton(href))).toBe(href);
+  });
+
+  /**
+   * A form email carries the app's own header and
+   * footer as well, and the link is found by its
+   * path rather than by being the only one.
+   */
+  test('ignores links that are not form links', () => {
+    const href = `http://127.0.0.1:3200/f/${TOKEN}`;
+    const html =
+      '<a href="http://127.0.0.1:3200/a/other">an artifact</a>\n' +
+      formButton(href);
+
+    expect(formUrlFrom(html)).toBe(href);
+  });
+
+  test('throws a named error when the mail carries no form link', () => {
+    expect(() => formUrlFrom(formButton(''))).toThrow(LinkExtractionError);
   });
 });
 

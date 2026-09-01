@@ -13,15 +13,20 @@ import { E2E_BASE_URL } from './helpers/stack.js';
  * first; global setup says so by name when it is
  * down.
  *
- * `mcp` and `extension` are declared and empty.
- * They exist so the two surfaces have a home to
- * land in rather than a config change to remember,
- * and `--list` is content with an empty testDir.
- * There is no CI job for either yet, because
- * `playwright test --project=mcp` against an empty
- * project exits 1 with "No tests found" — a job
- * that would be permanently red until the specs
- * arrive.
+ * `mcp` drives the MCP server's shipped bundle as
+ * child processes over stdio. It needs no browser
+ * and no compose stack — its specs take no `page`
+ * — only the bundle, which `npm run mcp:build`
+ * makes.
+ *
+ * `extension` is declared and empty. It exists so
+ * that surface has a home to land in rather than a
+ * config change to remember, and `--list` is
+ * content with an empty testDir. There is no CI
+ * job for it yet, because `playwright test
+ * --project=extension` against an empty project
+ * exits 1 with "No tests found" — a job that would
+ * be permanently red until the specs arrive.
  *
  * `retries: 0` and `workers: 1`, because a suite
  * that retries hides the flake it was written to
