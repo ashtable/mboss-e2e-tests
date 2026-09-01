@@ -129,6 +129,7 @@ let sink: Mailsink;
 let pool: pg.Pool;
 let app: HostProcess | undefined;
 let eventsSecret = '';
+let spec: Record<string, unknown> = {};
 
 test.beforeAll(async () => {
   // A scaffold, a full `npm install` and a Postgres
@@ -153,6 +154,46 @@ test.beforeAll(async () => {
   // the blocks. Everything else in this project was
   // written by the scaffold a moment ago.
   await cp(join(FIXTURE, 'lib'), join(project, 'lib'), { recursive: true });
+
+  // The document, straight off disk, minus its
+  // envelope: `$schema`, `version` and `revision`
+  // are the server's to set, and `name` comes from
+  // the tool call — a spec carrying its own would
+  // be free to disagree with it.
+  const document = JSON.parse(
+    await readFile(join(FIXTURE, `${WORKFLOW}.workflow.json`), 'utf8'),
+  ) as Record<string, unknown>;
+  spec = {
+    title: document['title'],
+    nodes: document['nodes'],
+    edges: document['edges'],
+  };
+
+  // Asked before anything is installed, and before
+  // a container is anywhere near this, because a
+  // fixture that has stopped being a legal document
+  // should cost seconds to find out about rather
+  // than the whole install-and-compose cycle. The
+  // scan the validator runs is poorer without
+  // `node_modules` and its answer here is not: both
+  // directions were checked against a scaffolded
+  // project with nothing installed. Its shape is
+  // guarded separately and hermetically, by
+  // `test/crash-fixture`.
+  session = await connectToBundle(
+    project,
+    'generated-app-durability spec',
+    join(project, '.mboss', 'mcp', 'server.js'),
+  );
+
+  const checked = outputOf<ValidateOutput>(
+    await session.client.callTool({
+      name: 'workflow_validate',
+      arguments: { spec },
+    }),
+  );
+  expect(checked.errors).toEqual([]);
+  expect(checked.valid).toBe(true);
 
   // Three stacks, one machine. The ports move; the
   // minted secrets do not, so the run exercises the
@@ -190,12 +231,6 @@ test.beforeAll(async () => {
     apiKey: env['TWILIO_API_KEY'] ?? '',
     apiSecret: env['TWILIO_API_SECRET'] ?? '',
   });
-
-  session = await connectToBundle(
-    project,
-    'generated-app-durability spec',
-    join(project, '.mboss', 'mcp', 'server.js'),
-  );
 });
 
 test.afterAll(async () => {
@@ -221,31 +256,8 @@ test.describe('a generated app', () => {
 
     const { client } = session;
 
-    // The document, straight off disk, minus its
-    // envelope: `$schema`, `version` and `revision`
-    // are the server's to set, and `name` comes
-    // from the tool call — a spec carrying its own
-    // would be free to disagree with it.
-    const document = JSON.parse(
-      await readFile(join(FIXTURE, `${WORKFLOW}.workflow.json`), 'utf8'),
-    ) as Record<string, unknown>;
-    const { title, nodes, edges } = document;
-    const spec = { title, nodes, edges };
-
-    // The real validator on the document about to
-    // be applied, which is what names the
-    // diagnostics if the fixture has stopped being
-    // a legal one. Its shape is guarded separately
-    // and hermetically, by `test/crash-fixture`.
-    const checked = outputOf<ValidateOutput>(
-      await client.callTool({
-        name: 'workflow_validate',
-        arguments: { spec },
-      }),
-    );
-    expect(checked.errors).toEqual([]);
-    expect(checked.valid).toBe(true);
-
+    // `spec` was read and validated in `beforeAll`,
+    // before anything was installed.
     await client.callTool({
       name: 'workflow_create',
       arguments: { name: WORKFLOW, title: 'Crash fixture' },

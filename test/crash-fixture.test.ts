@@ -12,9 +12,9 @@ import { describe, expect, test } from 'vitest';
  * submodules, so there is no `@mboss/core` here to
  * validate against and nothing may import one.
  * Whether the document is *legal* is answered by
- * `workflow_validate` through the bundle, which the
- * spec calls before it installs anything — the real
- * validator, and the first thing that runs.
+ * `workflow_validate` through the bundle — the real
+ * validator — which the spec calls as soon as the
+ * project exists and before it installs anything.
  *
  * What is worth catching here is different and
  * cannot be caught there: an edit that leaves the
