@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { CapturedMessage } from '../fixtures/mailsink/server.js';
 
-import { startHostProcess, waitForAnswer, type HostProcess } from './host.js';
+import { startAndWait, type HostProcess } from './host.js';
 
 /**
  * The suite's inbox.
@@ -59,21 +59,22 @@ export async function startMailsink(options: {
 }): Promise<Mailsink> {
   const url = `http://127.0.0.1:${options.port}`;
 
-  const running = startHostProcess({
-    command: process.execPath,
-    args: [MAILSINK_SERVER],
-    cwd: fileURLToPath(new URL('..', import.meta.url)),
-    env: {
-      PORT: String(options.port),
-      MAILSINK_API_KEY: options.apiKey,
-      MAILSINK_API_SECRET: options.apiSecret,
-      PUBLIC_BASE_URL: url,
+  const running = await startAndWait(
+    {
+      command: process.execPath,
+      args: [MAILSINK_SERVER],
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
+      env: {
+        PORT: String(options.port),
+        MAILSINK_API_KEY: options.apiKey,
+        MAILSINK_API_SECRET: options.apiSecret,
+        PUBLIC_BASE_URL: url,
+      },
     },
-  });
-
-  await waitForAnswer(running, `${url}/health`, 'the mailsink fixture', {
-    timeoutMs: 15_000,
-  });
+    `${url}/health`,
+    'the mailsink fixture',
+    { timeoutMs: 15_000 },
+  );
 
   return { url, process: running };
 }

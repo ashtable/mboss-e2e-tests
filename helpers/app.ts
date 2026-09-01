@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { startHostProcess, waitForAnswer, type HostProcess } from './host.js';
+import { startAndWait, type HostProcess } from './host.js';
 
 /**
  * Creating a project the way the extension will,
@@ -284,18 +284,17 @@ export async function startApp(
   dir: string,
   baseUrl: string,
 ): Promise<HostProcess> {
-  const running = startHostProcess({
-    command: join(dir, 'node_modules', '.bin', 'tsx'),
-    args: [join('src', 'app', 'main.ts')],
-    cwd: dir,
-    env: await readEnv(dir),
-  });
-
-  await waitForAnswer(running, `${baseUrl}/healthz`, 'the generated app', {
-    timeoutMs: 120_000,
-  });
-
-  return running;
+  return await startAndWait(
+    {
+      command: join(dir, 'node_modules', '.bin', 'tsx'),
+      args: [join('src', 'app', 'main.ts')],
+      cwd: dir,
+      env: await readEnv(dir),
+    },
+    `${baseUrl}/healthz`,
+    'the generated app',
+    { timeoutMs: 120_000 },
+  );
 }
 
 function unquote(value: string): string {

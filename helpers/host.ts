@@ -117,6 +117,15 @@ export type WaitOptions = {
  * reason, and reporting a bare timeout instead of
  * that sentence turns a two-second diagnosis into
  * an afternoon.
+ *
+ * The process is watched on the way *out* too. A
+ * server a previous run left behind answers the
+ * port just as well as the one started here, so
+ * asking only the socket would report success while
+ * handing back a process that died on EADDRINUSE —
+ * and the spec would then spend its run talking to
+ * the previous run's server, under the previous
+ * run's credentials.
  */
 export async function waitForAnswer(
   running: HostProcess,
@@ -135,7 +144,7 @@ export async function waitForAnswer(
     try {
       const response = await fetch(url);
       await response.arrayBuffer();
-      if (response.ok) return;
+      if (response.ok && !dead) return;
     } catch {
       // Not up yet. The deadline below is what
       // decides when that stops being acceptable.
@@ -155,5 +164,66 @@ export async function waitForAnswer(
     }
 
     await delay(intervalMs);
+  }
+}
+
+/**
+ * Starts a process and waits for it to answer,
+ * taking it away again if it never does.
+ *
+ * The wait is what decides whether a start
+ * succeeded, so it is also what has to clean up
+ * when it did not. A process that never answered
+ * is still a process: `detached` made it a group
+ * leader, and a caller that only ever got an
+ * exception has no handle to kill it with. Left
+ * alone it keeps the port, and the next run finds
+ * something already answering there.
+ *
+ * Which is why the address is checked before
+ * anything is started. Once two processes are in
+ * play there is no telling them apart from out
+ * here — the leftover answers the same address, and
+ * the one just started is still on its way to dying
+ * on EADDRINUSE when the first probe goes out, so
+ * the wait would report success and hand back a
+ * corpse. Refusing up front is the only answer that
+ * is certain, and it names the real problem instead
+ * of surfacing an hour later as an empty inbox.
+ */
+export async function startAndWait(
+  options: StartOptions,
+  url: string,
+  what: string,
+  wait: WaitOptions = {},
+): Promise<HostProcess> {
+  if (await answered(url)) {
+    throw new Error(
+      `${url} is already answering, so ${what} was not started: ` +
+        'something from an earlier run still holds the port.',
+    );
+  }
+
+  const running = startHostProcess(options);
+
+  try {
+    await waitForAnswer(running, url, what, wait);
+  } catch (failure) {
+    await running.kill();
+    throw failure;
+  }
+
+  return running;
+}
+
+/** Whether anything at all serves an address. */
+async function answered(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url);
+    await response.arrayBuffer();
+
+    return response.ok;
+  } catch {
+    return false;
   }
 }

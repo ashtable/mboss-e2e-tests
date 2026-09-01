@@ -1,7 +1,11 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { describe, expect, test } from 'vitest';
 
-import { startHostProcess, waitForAnswer } from '../helpers/host.js';
+import {
+  startAndWait,
+  startHostProcess,
+  waitForAnswer,
+} from '../helpers/host.js';
 
 /**
  * The half of the durability spec that has nothing
@@ -160,6 +164,144 @@ describe('waitForAnswer', () => {
       ).rejects.toThrow(/the probe/);
     } finally {
       await started.kill();
+    }
+  });
+
+  /**
+   * A server a previous run left behind answers the
+   * port just as well as the process this run
+   * started. Taking that as success is how one
+   * failed run poisons every later one: the new
+   * process dies on EADDRINUSE, the wait reports
+   * success anyway, and the spec spends the rest of
+   * its run talking to the previous run's server —
+   * which was started with the previous run's
+   * credentials, so the failure surfaces somewhere
+   * else entirely.
+   */
+  test('will not take an answer from something else on the port', async () => {
+    const stale = node(
+      'require("node:http").createServer((_, res) => res.end("ok"))' +
+        '.listen(38434, "127.0.0.1")',
+    );
+    await waitForAnswer(stale, 'http://127.0.0.1:38434/', 'the stale one', {
+      timeoutMs: 10_000,
+    });
+
+    // Already gone by the time the wait starts,
+    // which is the case this can answer for
+    // certain. A process still on its way out is
+    // the reason `startAndWait` refuses the port
+    // up front rather than relying on this.
+    const started = node('console.error("EADDRINUSE"); process.exit(1)');
+    await started.exited;
+
+    try {
+      await expect(
+        waitForAnswer(started, 'http://127.0.0.1:38434/', 'the probe', {
+          timeoutMs: 10_000,
+        }),
+      ).rejects.toThrow(/EADDRINUSE/);
+    } finally {
+      await stale.kill();
+    }
+  });
+});
+
+/**
+ * The wait is what decides whether a start
+ * succeeded, so it is also what has to clean up
+ * when it did not. A process is its own group
+ * leader here, so nothing else is going to collect
+ * one that never answered — it just keeps holding
+ * the port.
+ */
+describe('startAndWait', () => {
+  test('answers with the process once it answers', async () => {
+    const started = await startAndWait(
+      {
+        command: process.execPath,
+        args: [
+          '-e',
+          'require("node:http").createServer((_, res) => res.end("ok"))' +
+            '.listen(38435, "127.0.0.1")',
+        ],
+        cwd: process.cwd(),
+      },
+      'http://127.0.0.1:38435/',
+      'the probe',
+      { timeoutMs: 10_000 },
+    );
+
+    try {
+      expect(alive(started.pid)).toBe(true);
+    } finally {
+      await started.kill();
+    }
+  });
+
+  test('kills what it started when the wait fails', async () => {
+    const failure = await startAndWait(
+      {
+        command: process.execPath,
+        args: ['-e', 'console.log(process.pid); setInterval(() => {}, 1000)'],
+        cwd: process.cwd(),
+      },
+      'http://127.0.0.1:38436/',
+      'the probe',
+      { timeoutMs: 300 },
+    ).then(
+      () => undefined,
+      (error: Error) => error,
+    );
+
+    expect(failure?.message).toMatch(/the probe/);
+
+    // The process printed its own pid, and the
+    // failure carries everything it printed — which
+    // is the only handle on a process the caller
+    // never got back.
+    const pid = Number(/^\d+$/m.exec(failure?.message ?? '')?.[0]);
+    expect(pid).toBeGreaterThan(0);
+    expect(await goneWithin(pid, 5_000)).toBe(true);
+  });
+
+  /**
+   * The port has to be free before anything is
+   * started, because afterwards there is no way to
+   * tell the two apart: a leftover server answers
+   * the same address, and the process that was just
+   * started is still on its way to dying on
+   * EADDRINUSE when the first probe goes out. So
+   * this is the check that actually stops one
+   * failed run from poisoning the next, and it says
+   * what happened rather than failing an hour later
+   * on an empty inbox.
+   */
+  test('refuses to start when something already answers', async () => {
+    const stale = node(
+      'require("node:http").createServer((_, res) => res.end("ok"))' +
+        '.listen(38437, "127.0.0.1")',
+    );
+    await waitForAnswer(stale, 'http://127.0.0.1:38437/', 'the stale one', {
+      timeoutMs: 10_000,
+    });
+
+    try {
+      await expect(
+        startAndWait(
+          {
+            command: process.execPath,
+            args: ['-e', 'setInterval(() => {}, 1000)'],
+            cwd: process.cwd(),
+          },
+          'http://127.0.0.1:38437/',
+          'the probe',
+          { timeoutMs: 10_000 },
+        ),
+      ).rejects.toThrow(/already answering/);
+    } finally {
+      await stale.kill();
     }
   });
 });
