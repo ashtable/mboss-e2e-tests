@@ -68,3 +68,43 @@ jobs:
       - name: Tear the stack down
         if: always()
         run: npm run stack:down
+
+  # The MCP bundle and the specs that drive it.
+  # `submodules: recursive` is mandatory here too, for
+  # a different reason: mboss-mcp-server nests core
+  # and skills, and the bundle inlines core's source,
+  # so a non-recursive init leaves the build with
+  # nothing to bundle.
+  #
+  # No browsers are installed: the specs in this
+  # project take no `page`. They speak to a child
+  # process over stdio.
+  mcp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - run: npm ci
+
+      # Its own step rather than something global
+      # setup does, for the same reason `stack:up` is:
+      # a build failure should read as a build
+      # failure, not as seven specs failing on a
+      # missing file.
+      - run: npm run mcp:build
+      - run: npm run e2e:mcp
+
+      - name: Upload traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mcp-failure
+          path: |
+            playwright-report/
+            test-results/

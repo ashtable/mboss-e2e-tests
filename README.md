@@ -1,16 +1,20 @@
 # mboss-e2e-tests
 
-The browser-driven suite for mBoss. It brings up the whole cloud stack — the
+The top of mBoss's test pyramid. It brings up the whole cloud stack — the
 Next.js app, the private API, the DBOS worker, Postgres and two fixtures
 standing in for the mail provider and the Entra tenant — and drives it through
-a real browser, asserting on what those services actually did.
+a real browser, asserting on what those services actually did. It also drives
+the MCP server's shipped bundle as real child processes over stdio, which is
+where packaging and cross-process behaviour become visible.
 
-Two suites live here, and they are separate on purpose:
+Three suites live here, and they are separate on purpose:
 
 - **`npm test`** — vitest over the helpers and the two fixtures. No containers,
   no submodules, no browsers. Runs on a bare checkout.
 - **`npm run e2e:cloud`** — Playwright over the compose stack. Needs
   `npm run stack:up` first.
+- **`npm run e2e:mcp`** — Playwright over the MCP bundle. No containers and no
+  browser; needs `npm run mcp:build` first.
 
 ## Run
 
@@ -23,19 +27,29 @@ npx playwright install chromium
 npm run stack:up      # docker compose up --build --wait
 npm run e2e:cloud
 npm run stack:down
+
+npm run mcp:build     # npm ci + esbuild inside mboss-mcp-server
+npm run e2e:mcp
 ```
 
 `stack:up` builds three service images from the nested submodules, so the first
 run takes a few minutes. `--wait` is itself an assertion: it exits non-zero
 unless every service that declares a healthcheck reaches healthy.
 
+`mcp:build` runs `npm ci` and the esbuild bundle inside `mboss-mcp-server/`,
+leaving `dist/server.js` and `dist/VERSION` — the single file a project vendors
+and the one line the extension compares against.
+
 The suite has no `webServer` block. A runner that started a bare Next server
-would be testing something the product never runs as. Global setup does not
-start the stack either — it probes the three addresses and names
-`npm run stack:up` when one is not answering, then warms `/` and `/admin`,
-because a cold container's first request to a route loads its bundle and opens
-its connections, which can outlast an action timeout. A spec against a stack
-that is down fails as a connection refusal, which is the honest failure.
+would be testing something the product never runs as. Global setup starts
+nothing either, and checks only what the run is about: for `cloud` it probes
+the three addresses and names `npm run stack:up` when one is not answering,
+then warms `/` and `/admin`, because a cold container's first request to a
+route loads its bundle and opens its connections, which can outlast an action
+timeout; for `mcp` it checks the bundle is built and names `npm run mcp:build`
+when it is not. Which projects a run covers is read off `--project` on the
+command line — `FullConfig.projects` is the declared list, not the filtered
+one, so reading it would make `e2e:mcp` demand a mailsink no MCP spec talks to.
 
 ## Scripts
 
@@ -43,21 +57,26 @@ that is down fails as a connection refusal, which is the honest failure.
 | -------------------- | ------------------------------------------------ |
 | `npm test`           | vitest — helpers and fixtures, no containers     |
 | `npm run e2e:cloud`  | The `cloud` project against the compose stack    |
-| `npm run e2e:mcp`    | The `mcp` project — declared, no specs yet       |
+| `npm run e2e:mcp`    | The `mcp` project against the built bundle       |
 | `npm run e2e:ext`    | The `extension` project — declared, no specs yet |
+| `npm run mcp:build`  | Build the MCP bundle from the nested checkout    |
 | `npm run stack:up`   | `docker compose up --build --wait`               |
 | `npm run stack:down` | `docker compose down -v`                         |
 | `npm run stack:logs` | Follow every service's log                       |
 | `npm run lint`       | `tsc --noEmit`, ESLint, a Prettier check         |
 | `npm run format`     | Rewrite with Prettier                            |
 
-CI runs two jobs. `lint-unit` checks out without submodules and runs
+CI runs three jobs. `lint-unit` checks out without submodules and runs
 `npm ci && npm run lint && npm test` — which is the only place the hermetic
 claim is actually tested. `cloud` checks out `submodules: recursive`, brings
 the stack up and runs the suite, uploading traces, videos and compose logs on
-failure. There is no `mcp` or `extension` job: `playwright test --project=mcp`
-against an empty project exits 1 with "No tests found", so a job for either
-would be permanently red until its specs arrive.
+failure. `mcp` also checks out `submodules: recursive` — for a different
+reason, since `mboss-mcp-server` nests core and skills and the bundle inlines
+core's source — builds the bundle and runs the MCP specs; it installs no
+browser, because nothing in that project takes a `page`. There is still no
+`extension` job: `playwright test --project=extension` against an empty project
+exits 1 with "No tests found", so a job for it would be permanently red until
+its specs arrive.
 
 ## The stack
 
@@ -158,6 +177,44 @@ dependency: `helpers/auth.ts` sets an identity on the mock and drives the real
 three-redirect round trip, so the tenant check, the domain check and the
 session cookie are all tested rather than assumed.
 
+## The MCP bundle
+
+`tests/mcp/` drives the artifact `mboss-mcp-server` ships: one 18MB esbuild
+bundle with no `node_modules` beside it, vendored into a project as
+`.mboss/mcp/server.js` and started by the project's own Node. Nothing here
+imports that repo's TypeScript — the nested checkout is a build context, the
+same as the three service repos. `helpers/mcp.ts` spawns the file and speaks
+the protocol to it with the official SDK's client, and `helpers/project.ts`
+copies a checked-in fixture project out of `fixtures/projects/` so each spec
+writes into its own.
+
+The fixtures hold inputs only — an IR-less `.mboss/`, `lib/` types, the
+scaffold's own `src/app/contract.ts`, a `tsconfig.json` — and install nothing.
+So the type-check gate `project_build` runs really runs, and the only module
+resolutions it cannot make are `@dbos-inc/dbos-sdk` and `vitest`; the bundle
+spec asserts those two are the _only_ complaints, which is what keeps a real
+type error from hiding behind them.
+
+**`mcp-bundle.spec.ts`** — create → dry-run → apply → get → rename → scaffold →
+build over stdio, asserting the proposal file on disk and its status flipping
+to `applied`, the revision reaching 2 then 3, the one edge endpoint that moved
+with a renamed node, the scaffolded handler's signature typed from the block's
+own `in`/`out`, and the generated workflow carrying its DO-NOT-EDIT header and
+importing the handler. Then all five resources, and every structured failure
+code over the wire — `WORKFLOW_NOT_FOUND`, `NO_CURRENT_WORKFLOW`,
+`REVISION_CONFLICT`, `VALIDATION_FAILED`, `PROPOSAL_NOT_FOUND`,
+`PROPOSAL_STALE`, `NOT_AN_MBOSS_PROJECT`.
+
+**`lock-contention.spec.ts`** — two server processes racing one apply from the
+same `baseRevision`, twenty-five rounds. Each round: exactly one winner, the
+loser refused with `REVISION_CONFLICT` rather than hung or applied, the file
+still parsing, the revision advanced exactly once, the winner's whole document
+on disk rather than a mixture of both, and no `.mboss/.lock` left behind. Any
+single round fails the spec — a racy lock fails probabilistically, so the
+repetition is the assertion. Plus the two lock cases either side of it: a lock
+older than ten seconds is presumed abandoned and taken over, and a fresh one is
+waited behind until it is released.
+
 ## What each spec proves
 
 Nine files in `tests/cloud/`. Each opens with `test.beforeAll(resetStack)` —
@@ -241,10 +298,17 @@ own suite. Moving them needs an `mboss-web` commit, and deleting them would
 lose real coverage nothing replaces — so they stay here, named, until someone
 moves them.
 
-**The `mcp` and `extension` projects are declared and empty.** They exist so
-the two surfaces have a home to land in rather than a config change to
-remember. `playwright test --list` is content with an empty `testDir`; running
-one is not, which is why neither has a CI job yet.
+**The `extension` project is declared and empty.** It exists so that surface
+has a home to land in rather than a config change to remember. `playwright test
+--list` is content with an empty `testDir`; running one is not, which is why it
+has no CI job yet.
+
+**The MCP fixture project installs nothing.** `project_build`'s type-check
+therefore cannot resolve `@dbos-inc/dbos-sdk` or `vitest`, and the bundle spec
+asserts around exactly those two by name. A generated app with its real
+dependencies installed is the durability spec's job, not this fixture's — but
+until that lands, nothing here proves the generated code type-checks against
+the actual SDK.
 
 **`https://` on the unsubscribe URL is not asserted.** This harness's
 `SITE_URL` is `http://localhost:3100` by design. Scheme-on-the-wire belongs to

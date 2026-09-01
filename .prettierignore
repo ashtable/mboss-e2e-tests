@@ -2,10 +2,11 @@ node_modules
 playwright-report
 test-results
 
-# Nested service checkouts — each formats itself.
+# Nested checkouts — each formats itself.
 mboss-web
 mboss-nodejs-api
 mboss-nodejs-dbos
+mboss-mcp-server
 
 # Generated TLS material for the oidc mock.
 *.pem

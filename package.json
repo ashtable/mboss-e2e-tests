@@ -15,6 +15,7 @@
     "e2e:cloud": "playwright test --project=cloud",
     "e2e:mcp": "playwright test --project=mcp",
     "e2e:ext": "playwright test --project=extension",
+    "mcp:build": "cd mboss-mcp-server && npm ci && npm run build:bundle",
     "stack:up": "docker compose -f docker-compose.e2e.yml up --build --wait",
     "stack:down": "docker compose -f docker-compose.e2e.yml down -v",
     "stack:logs": "docker compose -f docker-compose.e2e.yml logs -f",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@modelcontextprotocol/client": "^2.0.0",
     "@playwright/test": "^1.62.1",
     "@types/node": "^24.13.3",
     "@types/pg": "^8.21.0",

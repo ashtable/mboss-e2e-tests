@@ -8,12 +8,13 @@ export default tseslint.config(
       'node_modules/**',
       'playwright-report/**',
       'test-results/**',
-      // The three nested service checkouts are
-      // build contexts, not sources of this repo;
-      // each lints itself in its own CI.
+      // The four nested checkouts are build
+      // contexts, not sources of this repo; each
+      // lints itself in its own CI.
       'mboss-web/**',
       'mboss-nodejs-api/**',
       'mboss-nodejs-dbos/**',
+      'mboss-mcp-server/**',
       'fixtures/oidc-mock/tls/**',
     ],
   },

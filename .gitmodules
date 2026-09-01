@@ -10,3 +10,7 @@
 	path = mboss-nodejs-dbos
 	url = https://github.com/ashtable/mboss-nodejs-dbos
 	branch = dbos-v0.0.10
+[submodule "mboss-mcp-server"]
+	path = mboss-mcp-server
+	url = https://github.com/ashtable/mboss-mcp-server
+	branch = mcp-server-v0.0.1
