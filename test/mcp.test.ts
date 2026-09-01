@@ -65,6 +65,30 @@ describe('errorCodeOf', () => {
   it('says nothing about a result that succeeded', () => {
     expect(errorCodeOf(succeeded({ revision: 2 }))).toBeUndefined();
   });
+
+  /**
+   * Plenty of the server's failures carry no code:
+   * a handler that throws comes back through the
+   * SDK as the one sentence it was thrown with and
+   * no structured half at all. Every spec here runs
+   * this on whatever it gets back, so it has to
+   * answer "no code" rather than throw a
+   * SyntaxError from under the assertion that was
+   * asking what went wrong.
+   */
+  it('says nothing about a failure that is a plain sentence', () => {
+    const thrown = {
+      isError: true,
+      content: [
+        {
+          type: 'text' as const,
+          text: 'Give exactly one of `name` or `spec`.',
+        },
+      ],
+    };
+
+    expect(errorCodeOf(thrown)).toBeUndefined();
+  });
 });
 
 describe('outputOf', () => {

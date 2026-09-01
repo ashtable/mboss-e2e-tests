@@ -138,6 +138,13 @@ export class McpToolError extends Error {
  * deliberately, so both are read: a client that
  * dropped the structured half would otherwise make
  * every error assertion here vacuous.
+ *
+ * Not every failure has a code. A handler that
+ * throws arrives as the sentence it was thrown
+ * with and nothing else, which is an answer of
+ * `undefined` rather than something to fail on —
+ * this runs on whatever a spec got back, including
+ * the results nobody planned for.
  */
 export function errorCodeOf(result: CallToolResult): string | undefined {
   if (result.isError !== true) return undefined;
@@ -147,7 +154,16 @@ export function errorCodeOf(result: CallToolResult): string | undefined {
 
   const [block] = result.content ?? [];
 
-  return block?.type === 'text' ? codeOf(JSON.parse(block.text)) : undefined;
+  return block?.type === 'text' ? codeOf(parsed(block.text)) : undefined;
+}
+
+/** JSON, or nothing when the text was never JSON. */
+function parsed(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
