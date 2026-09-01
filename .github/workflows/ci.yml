@@ -79,9 +79,20 @@ jobs:
   # No browsers are installed: the specs in this
   # project take no `page`. They speak to a child
   # process over stdio.
+  # Above what the specs themselves allow, on
+  # purpose. The project runs one worker, so its
+  # budgets add up: 900s for the durability
+  # beforeAll, 900s for the run itself, 600s for the
+  # image build, 180s for the teardown, and 180s
+  # each for the two fast specs — 49 minutes, before
+  # `npm ci` and the bundle build. A cap below that
+  # would make GitHub the thing that stops a hung
+  # run, and GitHub cancelling a job produces no
+  # trace and no report. In practice this job
+  # finishes in a few minutes.
   mcp:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
@@ -100,11 +111,27 @@ jobs:
       - run: npm run mcp:build
       - run: npm run e2e:mcp
 
+      # Always, not on failure: a job cancelled for
+      # running past `timeout-minutes` is not a
+      # failure as far as GitHub is concerned, so an
+      # `if: failure()` step does not run — and a
+      # hang is exactly the case with something worth
+      # reading.
       - name: Upload traces
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: mcp-failure
+          if-no-files-found: ignore
           path: |
             playwright-report/
             test-results/
+
+      # The durability spec's own teardown never runs
+      # if the worker is killed, and the project name
+      # is fixed, so what it leaves behind is what the
+      # next run on this machine inherits. Ephemeral
+      # runners hide that; a self-hosted one does not.
+      - name: Tear the crash fixture down
+        if: always()
+        run: docker compose -p crash-fixture down -v || true
