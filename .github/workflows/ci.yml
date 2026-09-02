@@ -171,6 +171,15 @@ jobs:
           cache: 'npm'
       - run: npm ci
 
+      # No browser is downloaded — the window under
+      # test is the editor's. This installs the
+      # system libraries only, which Electron and
+      # Chromium share: without libnss3, libgbm and
+      # the rest, the editor exits before it paints
+      # anything and the failure names a shared
+      # object rather than a spec.
+      - run: npx playwright install-deps chromium
+
       # Three hundred megabytes, and the same three
       # hundred on every run until the pin moves —
       # which is exactly what the key is the pin
