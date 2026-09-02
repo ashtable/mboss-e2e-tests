@@ -6,6 +6,7 @@ import {
   E2E_MAILSINK_URL,
   E2E_OIDC_CONTROL_URL,
 } from './helpers/stack.js';
+import { assertExtensionBuilt } from './helpers/vscode.js';
 
 /**
  * One check per suite that is actually about to
@@ -15,17 +16,24 @@ import {
  * whatever `--project` was given, and the suites
  * need different things: `cloud` needs the compose
  * stack, `mcp` needs the built MCP bundle and no
- * containers at all. Checking for all of it every
- * time is what made `npm run e2e:mcp` fail on a
- * mailsink no MCP spec talks to.
+ * containers at all, `extension` needs the packaged
+ * VSIX and nothing else. Checking for all of it
+ * every time is what made `npm run e2e:mcp` fail on
+ * a mailsink no MCP spec talks to.
  *
- * Bringing any of it up is left to `stack:up` and
- * `mcp:build` deliberately: `up --wait` already
- * gates on the healthchecks, so a probe here would
- * be redundant, and building images or bundles
- * inside global setup would bury the build output
- * behind Playwright's reporter and make a one-spec
- * run take minutes.
+ * Bringing any of it up is left to `stack:up`,
+ * `mcp:build` and `vscode:build` deliberately: `up
+ * --wait` already gates on the healthchecks, so a
+ * probe here would be redundant, and building
+ * images or bundles inside global setup would bury
+ * the build output behind Playwright's reporter and
+ * make a one-spec run take minutes.
+ *
+ * The design text says global setup builds the MCP
+ * bundle and the VSIX. It deliberately does not.
+ * A build that fails should read as a build
+ * failing, in its own CI step, rather than as every
+ * spec in a project failing on a missing file.
  */
 export default async function globalSetup(config: FullConfig): Promise<void> {
   const declared = config.projects.map((project) => project.name);
@@ -33,6 +41,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
 
   if (running.has('cloud')) await forCloud();
   if (running.has('mcp')) await assertBundleBuilt();
+  if (running.has('extension')) await assertExtensionBuilt();
 }
 
 /**

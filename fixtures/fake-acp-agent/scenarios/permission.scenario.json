@@ -1,0 +1,30 @@
+{
+  "prompt": "Write the embedding handler for me.",
+  "steps": [
+    {
+      "kind": "update",
+      "sessionUpdate": "agent_message_chunk",
+      "text": "lib/embedChunk.ts does not exist yet — may I write it?"
+    },
+    {
+      "kind": "requestPermission",
+      "title": "Write lib/embedChunk.ts",
+      "toolKind": "edit",
+      "options": [
+        { "optionId": "once", "name": "Allow once", "kind": "allow_once" },
+        {
+          "optionId": "always",
+          "name": "Always allow edits",
+          "kind": "allow_always"
+        },
+        { "optionId": "no", "name": "Reject", "kind": "reject_once" }
+      ]
+    },
+    {
+      "kind": "update",
+      "sessionUpdate": "agent_message_chunk",
+      "text": "that is everything I was asked for"
+    },
+    { "kind": "stopTurn" }
+  ]
+}

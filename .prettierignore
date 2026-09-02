@@ -2,11 +2,15 @@ node_modules
 playwright-report
 test-results
 
+# The editor build this suite drives.
+.vscode-test
+
 # Nested checkouts — each formats itself.
 mboss-web
 mboss-nodejs-api
 mboss-nodejs-dbos
 mboss-mcp-server
+mboss-vscode
 
 # Generated TLS material for the oidc mock.
 *.pem

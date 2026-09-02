@@ -1,0 +1,62 @@
+{
+  "prompt": "Build a sermon helper: email me an upload form, parse and embed my docs, draft an outline, and let me approve it before it publishes.",
+  "steps": [
+    {
+      "kind": "update",
+      "sessionUpdate": "agent_message_chunk",
+      "text": "skill: mboss ✓ loaded"
+    },
+    { "kind": "readResource", "uri": "mboss://node-catalog" },
+    {
+      "kind": "update",
+      "sessionUpdate": "agent_message_chunk",
+      "text": "mcp → mboss://node-catalog ✓"
+    },
+    { "kind": "readResource", "uri": "mboss://workflow-schema" },
+    {
+      "kind": "update",
+      "sessionUpdate": "agent_message_chunk",
+      "text": "mcp → mboss://workflow-schema ✓"
+    },
+    {
+      "kind": "update",
+      "sessionUpdate": "agent_thought_chunk",
+      "text": "spec: 16 nodes · 18 edges · semantic"
+    },
+    {
+      "kind": "toolCall",
+      "tool": "workflow_apply_spec",
+      "title": "workflow.apply_spec dryRun",
+      "toolKind": "edit",
+      "args": {
+        "name": "sermon_helper",
+        "dryRun": true,
+        "baseRevision": 1,
+        "spec": { "$file": "../specs/sermon_helper.spec.json" }
+      },
+      "diffs": [
+        {
+          "path": ".mboss/workflows/sermon_helper.workflow.json",
+          "oldText": "{\n  \"$schema\": \"https://mboss.dev/schemas/workflow-v1.json\",\n  \"version\": 1,\n  \"revision\": 1,\n  \"name\": \"sermon_helper\",\n  \"title\": \"Sermon helper\",\n  \"nodes\": [],\n  \"edges\": []\n}\n",
+          "newText": "{\n  \"$schema\": \"https://mboss.dev/schemas/workflow-v1.json\",\n  \"version\": 1,\n  \"revision\": 2,\n  \"name\": \"sermon_helper\",\n  \"title\": \"Sermon helper\"\n}\n"
+        }
+      ]
+    },
+    {
+      "kind": "update",
+      "sessionUpdate": "agent_message_chunk",
+      "text": "workflow.apply_spec dryRun ✓ valid"
+    },
+    {
+      "kind": "update",
+      "sessionUpdate": "agent_message_chunk",
+      "text": "layout: deterministic → preview"
+    },
+    {
+      "kind": "update",
+      "sessionUpdate": "plan",
+      "entries": ["scaffold 9 code-behind handlers"]
+    },
+    { "kind": "stopTurn" }
+  ]
+}

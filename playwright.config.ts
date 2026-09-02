@@ -19,14 +19,16 @@ import { E2E_BASE_URL } from './helpers/stack.js';
  * — only the bundle, which `npm run mcp:build`
  * makes.
  *
- * `extension` is declared and empty. It exists so
- * that surface has a home to land in rather than a
- * config change to remember, and `--list` is
- * content with an empty testDir. There is no CI
- * job for it yet, because `playwright test
- * --project=extension` against an empty project
- * exits 1 with "No tests found" — a job that would
- * be permanently red until the specs arrive.
+ * `extension` drives the packaged VS Code extension
+ * inside a real editor. It takes no `page` either:
+ * the window under test is an Electron one that
+ * `helpers/vscode.ts` launches, so there is no
+ * browser for the runner to start and no
+ * `launchOptions` here for it to read — the flags,
+ * the throwaway profile and the frame chain are all
+ * that helper's. What the project does need is its
+ * own clock: a run unzips a package, starts an
+ * extension host, and waits on code generation.
  *
  * `retries: 0` and `workers: 1`, because a suite
  * that retries hides the flake it was written to
@@ -71,6 +73,11 @@ export default defineConfig({
       },
     },
     { name: 'mcp', testDir: './tests/mcp' },
-    { name: 'extension', testDir: './tests/extension' },
+    {
+      name: 'extension',
+      testDir: './tests/extension',
+      timeout: 300_000,
+      expect: { timeout: 60_000 },
+    },
   ],
 });

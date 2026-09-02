@@ -135,3 +135,75 @@ jobs:
       - name: Tear the crash fixture down
         if: always()
         run: docker compose -p crash-fixture down -v || true
+
+  # The packaged VS Code extension, driven inside a
+  # real editor.
+  #
+  # `submodules: recursive` for a third reason:
+  # mboss-vscode nests core, the MCP server and the
+  # skill, and its package inlines all three, so a
+  # non-recursive init leaves `vsce package` with
+  # nothing to zip.
+  #
+  # No browsers are installed. The window under test
+  # is Electron's, launched by the suite from the
+  # editor build it downloads — which is also why
+  # this is the one job that needs a display, and
+  # `xvfb-run` is what gives it one.
+  #
+  # The budget, per step, the way the mcp job spells
+  # its own out: 600s for the package build, 300s per
+  # spec file and four of them, and 300s for `npm
+  # ci`. Half an hour, and in practice it finishes in
+  # about five minutes. A cap below that would make
+  # GitHub the thing that stops a hung run, and a
+  # cancelled job leaves no trace and no report.
+  extension:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - run: npm ci
+
+      # No browser is downloaded — the window under
+      # test is the editor's. This installs the
+      # system libraries only, which Electron and
+      # Chromium share: without libnss3, libgbm and
+      # the rest, the editor exits before it paints
+      # anything and the failure names a shared
+      # object rather than a spec.
+      - run: npx playwright install-deps chromium
+
+      # Three hundred megabytes, and the same three
+      # hundred on every run until the pin moves —
+      # which is exactly what the key is the pin
+      # file's hash for.
+      - name: Cache the pinned editor
+        uses: actions/cache@v4
+        with:
+          path: .vscode-test
+          key: vscode-${{ runner.os }}-${{ hashFiles('.vscode-version') }}
+
+      # Its own step rather than something global
+      # setup does, for the same reason `mcp:build`
+      # is: a build failure should read as a build
+      # failure, not as fifteen specs failing on a
+      # missing package.
+      - run: npm run vscode:build
+      - run: xvfb-run -a npm run e2e:ext
+
+      - name: Upload traces
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: extension-failure
+          if-no-files-found: ignore
+          path: |
+            playwright-report/
+            test-results/
