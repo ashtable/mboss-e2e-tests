@@ -1,0 +1,33 @@
+{
+  "$schema": "https://mboss.dev/schemas/workflow-v1.json",
+  "version": 1,
+  "revision": 1,
+  "name": "two_blocks",
+  "title": "Two blocks",
+  "nodes": [
+    {
+      "id": "started_by_hand",
+      "kind": "trigger",
+      "title": "Started by hand",
+      "config": { "mode": "manual" },
+      "out": "Enquiry"
+    },
+    {
+      "id": "answer_it",
+      "kind": "step",
+      "title": "Answer it",
+      "handler": { "export": "answerIt" },
+      "in": "Enquiry",
+      "out": "Answer",
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": { "node": "started_by_hand", "port": "out" },
+      "to": { "node": "answer_it" },
+      "type": "Enquiry"
+    }
+  ]
+}

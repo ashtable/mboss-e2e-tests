@@ -13,8 +13,8 @@
 [submodule "mboss-mcp-server"]
 	path = mboss-mcp-server
 	url = https://github.com/ashtable/mboss-mcp-server
-	branch = mcp-server-v0.0.1
+	branch = mcp-server-v0.0.2
 [submodule "mboss-vscode"]
 	path = mboss-vscode
 	url = https://github.com/ashtable/mboss-vscode
-	branch = vscode-v0.0.1
+	branch = vscode-v0.0.2
