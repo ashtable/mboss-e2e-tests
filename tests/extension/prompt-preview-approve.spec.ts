@@ -86,7 +86,7 @@ test.describe('preview and approve', () => {
     sidebar = await vscode.webview('sidebar');
 
     const scenario = await loadScenario(
-      join(SCENARIOS_DIR, 'sermon-helper.scenario.json'),
+      join(SCENARIOS_DIR, 'sermon-helper-asking.scenario.json'),
     );
 
     const composer = sidebar.locator('.composer textarea');
@@ -97,14 +97,18 @@ test.describe('preview and approve', () => {
 
     // The card arrives mid-turn: the proposal is
     // written by a tool call, and the panel sees the
-    // file the moment it lands. The rest of this
-    // spec waits for the agent to finish talking
-    // first, because the extension takes one turn at
-    // a time and drops anything it is asked to send
-    // during one — including the prompt an approval
-    // sends. A stop control on the composer is how
-    // the panel says a turn is running.
-    await expect(sidebar.locator('[data-stop]')).toHaveCount(0);
+    // file the moment it lands. Nothing here waits
+    // for the agent to finish talking first —
+    // pressing Approve while it is still working is
+    // what a person does, and the prompt an approval
+    // sends has to survive it.
+    //
+    // Which means the turn has to still be running
+    // when this spec presses, as a fact rather than
+    // as a race it usually wins: this scenario's
+    // agent ends by asking a question of its own and
+    // holds the turn open until it is answered.
+    await expect(sidebar.locator('.permission')).toBeVisible();
   });
 
   test.afterAll(async () => {
@@ -131,7 +135,13 @@ test.describe('preview and approve', () => {
       said.filter({ hasText: 'mboss://workflow-schema' }),
     ).toBeVisible();
 
-    const call = sidebar.locator('[data-tool-call]');
+    // The one the agent made, told apart from the
+    // question it is still waiting on — which the
+    // panel also draws as a card.
+    const call = sidebar
+      .locator('[data-tool-call]')
+      .filter({ hasText: 'workflow.apply_spec' });
+
     await expect(call).toHaveAttribute('data-status', 'completed');
     await expect(call.locator('.tool-title')).toHaveText(
       'workflow.apply_spec dryRun',
@@ -173,12 +183,22 @@ test.describe('preview and approve', () => {
   test('the card offers the decision, and taking it applies', async () => {
     const card = sidebar.locator('[data-preview-card]');
 
+    // Still mid-turn, which is the point: the agent
+    // is waiting on its own question and this is
+    // answering a different one.
+    await expect(sidebar.locator('.permission')).toBeVisible();
+
     await expect(card).toHaveAttribute('data-at', 'proposed');
     await expect(card.locator('[data-approve]')).toHaveText('Approve & apply');
 
     await card.locator('[data-approve]').click();
 
     await expect(card).toHaveAttribute('data-at', 'applied');
+
+    // Now let the agent's own question be answered,
+    // which is what ends the turn the approval
+    // landed in the middle of.
+    await sidebar.locator('.permission [data-option="once"]').click();
   });
 
   /**

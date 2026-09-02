@@ -147,6 +147,10 @@ export type DrivenVsCode = {
    *  rendered. */
   webview(name: WebviewName): Promise<FrameLocator>;
 
+  /** Whether it is on screen right now — the
+   *  question a view being swapped out asks. */
+  showsWebview(name: WebviewName): Promise<boolean>;
+
   /** Runs a command from the palette, by the title
    *  it shows there. */
   runCommand(title: string): Promise<void>;
@@ -251,6 +255,8 @@ export async function driveVsCode(
   return {
     page,
     webview: (name) => webviewFrame(page, name),
+    showsWebview: async (name) =>
+      (await showingWebview(page, name)) !== undefined,
     runCommand: (title) => runCommand(page, title),
     openFile: (relative) => openFile(page, relative),
     answerFolderPick: (path) => answerFolderPick(page, path),
@@ -506,38 +512,66 @@ async function webviewFrame(
   page: Page,
   name: WebviewName,
 ): Promise<FrameLocator> {
-  const marker = `script[src$="/webview/${name}.js"]`;
   const until = Date.now() + WEBVIEW_MS;
 
   while (Date.now() < until) {
-    const outer = page.locator('iframe.webview');
+    const frame = await showingWebview(page, name);
 
-    for (let at = 0; at < (await outer.count()); at += 1) {
-      const frame = outer
-        .nth(at)
-        .contentFrame()
-        .locator('iframe')
-        .contentFrame();
-
-      // A frame detaches while it is being read
-      // whenever the editor re-lays the view out.
-      // That is not a failure; it is the next
-      // pass's problem.
-      const found = await frame
-        .locator(marker)
-        .count()
-        .catch(() => 0);
-
-      if (found > 0) return frame;
-    }
+    if (frame !== undefined) return frame;
 
     await pause(FRAME_POLL_MS);
   }
 
   throw new Error(
-    `the ${name} webview never rendered — ` +
-      `no frame under any \`iframe.webview\` loaded ${marker}`,
+    `the ${name} webview never rendered — no visible frame under any ` +
+      `\`iframe.webview\` loaded /webview/${name}.js`,
   );
+}
+
+/**
+ * That webview's frame if it is on screen at this
+ * instant, and nothing if it is not.
+ *
+ * Kept apart from the wait above because two of
+ * these views take turns in one container — the
+ * Inspector replaces the agent panel while a block
+ * is selected — and a helper that only ever waits
+ * can say "not yet" but never "gone".
+ *
+ * On screen rather than merely present: the editor
+ * hoists every webview into one overlay layer, and
+ * whether the one it is hiding is removed from the
+ * DOM or only hidden in it is the editor's business
+ * and not a contract. Asking whether it is visible
+ * answers the question a person would ask either
+ * way.
+ */
+async function showingWebview(
+  page: Page,
+  name: WebviewName,
+): Promise<FrameLocator | undefined> {
+  const marker = `script[src$="/webview/${name}.js"]`;
+  const outer = page.locator('iframe.webview');
+
+  for (let at = 0; at < (await outer.count()); at += 1) {
+    const host = outer.nth(at);
+    const frame = host.contentFrame().locator('iframe').contentFrame();
+
+    // A frame detaches while it is being read
+    // whenever the editor re-lays the view out.
+    // That is not a failure; it is the next
+    // pass's problem.
+    const found = await frame
+      .locator(marker)
+      .count()
+      .catch(() => 0);
+
+    if (found > 0 && (await host.isVisible().catch(() => false))) {
+      return frame;
+    }
+  }
+
+  return undefined;
 }
 
 /**
