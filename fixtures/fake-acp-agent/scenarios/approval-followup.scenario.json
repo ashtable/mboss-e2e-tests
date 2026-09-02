@@ -1,0 +1,46 @@
+{
+  "prompt": "Approved — proposal applied. Scaffold the handlers.",
+  "steps": [
+    {
+      "kind": "update",
+      "sessionUpdate": "agent_message_chunk",
+      "text": "applied ✓ — scaffolding the code behind"
+    },
+    {
+      "kind": "toolCall",
+      "tool": "workflow_scaffold_step",
+      "title": "workflow.scaffold_step extract_text",
+      "toolKind": "edit",
+      "args": { "workflow": "sermon_helper", "nodeId": "extract_text" },
+      "diffs": [
+        {
+          "path": "lib/extractText.ts",
+          "newText": "import type { DocumentText, UploadedDocs } from './types.js';\n\nexport async function extractText(input: UploadedDocs): Promise<DocumentText> {\n  throw new Error('not implemented');\n}\n"
+        }
+      ]
+    },
+    {
+      "kind": "toolCall",
+      "tool": "workflow_scaffold_step",
+      "title": "workflow.scaffold_step chunk_text",
+      "toolKind": "edit",
+      "args": { "workflow": "sermon_helper", "nodeId": "chunk_text" },
+      "diffs": [
+        {
+          "path": "lib/chunkText.ts",
+          "newText": "import type { DocumentText, TextChunks } from './types.js';\n\nexport async function chunkText(input: DocumentText): Promise<TextChunks> {\n  throw new Error('not implemented');\n}\n"
+        }
+      ]
+    },
+    {
+      "kind": "update",
+      "sessionUpdate": "plan",
+      "entries": [
+        "scaffold extract_text",
+        "scaffold chunk_text",
+        "fill in the remaining handlers"
+      ]
+    },
+    { "kind": "stopTurn" }
+  ]
+}

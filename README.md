@@ -121,12 +121,14 @@ Postgres is on tmpfs with no volume. A suite that truncates before every spec
 file has nothing worth keeping between runs, and a named volume would only be a
 way to inherit yesterday's rows.
 
-## The two fixtures
+## The three fixtures
 
-Both are plain `node:http`/`node:https` plus `node:crypto`, zero runtime
-dependencies, written as `.ts` and run directly (`node server.ts` — Node 24.18
-strips types natively). No `npm ci` layer in either Dockerfile, no second
-lockfile, and the bytes the container serves are the bytes vitest imports.
+All three are written as `.ts` and run directly (`node server.ts` — Node 24.18
+strips types natively), each exporting the one thing both its runtime entry
+point and its unit tests use — so the bytes that run are the bytes vitest
+imports. The two servers are plain `node:http`/`node:https` plus `node:crypto`
+with zero runtime dependencies: no `npm ci` layer in either Dockerfile and no
+second lockfile.
 
 ### `fixtures/mailsink` — the Twilio Email API, and an inbox
 
@@ -182,6 +184,46 @@ Two other things the mock has to get right, both proved in
 the authorize request sent one (Auth.js uses `checks: ['pkce']`, so
 `expectNoNonce` is what reaches the verifier, and an echoed nonce throws), and
 `state` is echoed only when present, because Auth.js sends none.
+
+### `fixtures/fake-acp-agent` — a coding agent that answers the same twice
+
+The extension's sidebar is an ACP client, and a real agent on the other end of
+it costs tokens and says something different every run. This is a peer that
+speaks the protocol for real — the SDK the extension pins, the same ndjson
+framing, a real MCP client opened against whatever `session/new` handed it —
+while the words come from a scenario file keyed by the **exact** prompt that
+asks for them. An unrecognised prompt is a JSON-RPC error naming the prompt and
+listing what it does know; a player that guessed would be a peer nothing could
+assert against.
+
+It registers through the extension's own `custom` agent slot
+(`mboss.agent.id: custom` plus `mboss.agent.command`/`mboss.agent.args`), like
+any other program somebody points that setting at. **No test hook was added to
+the extension**, and nothing in the extension knows this file exists.
+
+The load-bearing part is the MCP half. `session/new` opens one client per
+server it was passed, in the session's own `cwd`, so a scenario's
+`workflow_apply_spec` dry-run flows through the same `server.js` the extension
+vendored into the project and writes a real proposal — the suite exercises the
+control plane rather than a stub of it. A hermetic connector is injectable,
+which is how `test/fake-acp-agent*.test.ts` run with nothing built.
+
+`$MBOSS_FAKE_AGENT_TRANSCRIPT` names a JSONL file, one object per line,
+appended synchronously so there is nothing left to flush however the process
+ends. It records **requests and notifications only, in both directions, never
+responses**: a response carries what a real server, a real editor and a real
+temporary directory had to say, none of which the scenario chose.
+`fake-acp-agent-stability.test.ts` runs one scenario twice and compares bytes,
+which is the assertion the whole fixture is shaped around — the ids it mints
+count from one per agent, and no clock reaches a line.
+
+`specs/sermon_helper.spec.json` is the sixteen-node graph behind the canvas's
+`+16 nodes +18 edges` preview banner. Its edges name eleven types
+(`SermonRequest`, `UploadedDocs`, `DocumentText`, `TextChunks`,
+`EmbeddedChunks`, `EmbeddingIndex`, `LectionaryReadings`, `SermonOutline`,
+`ScoredOutline`, `SermonDraft`, `PublishedSermon`), and V06 is an **error**
+against a project whose code-behind exports none of them — so a fixture project
+this scenario is aimed at has to export all eleven from `lib/`.
 
 ## Nothing here mints anything
 
@@ -367,6 +409,21 @@ moves them.
 has a home to land in rather than a config change to remember. `playwright test
 --list` is content with an empty `testDir`; running one is not, which is why it
 has no CI job yet.
+
+**The fake agent's stdio entry point has no automated test.** Its scenario
+player is driven in-process by the hermetic suite, which is what keeps that
+suite free of spawned processes; the twelve lines that hand the player
+`process.stdin`/`process.stdout` are proved only when the extension specs spawn
+it for real. The wiring is kept that thin on purpose, and it has been driven by
+hand end to end — spawned, handshaken, prompted, MCP call through the real
+bundle, proposal on disk.
+
+**The fake agent's approval follow-up prompt is a copy of the extension's.**
+`scenarios/approval-followup.scenario.json` is keyed to the exact sentence the
+extension sends after **Approve & apply**. The two cannot share a constant —
+nested checkouts are build contexts here, not imported source — so if that copy
+changes on the extension side, this scenario's `prompt` has to change with it,
+and the symptom is a turn that errors naming the prompt it was given.
 
 **The `minimal` fixture project installs nothing.** `project_build`'s type-check
 therefore cannot resolve `@dbos-inc/dbos-sdk` or `vitest`, and `mcp-bundle`

@@ -22,6 +22,7 @@
     "format": "prettier --write ."
   },
   "devDependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
     "@eslint/js": "^10.0.1",
     "@modelcontextprotocol/client": "^2.0.0",
     "@playwright/test": "^1.62.1",
@@ -33,6 +34,7 @@
     "prettier": "^3.9.6",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.66.0",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "zod": "^4.5.4"
   }
 }

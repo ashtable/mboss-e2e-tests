@@ -1,0 +1,17 @@
+{
+  "prompt": "What types does this project already export?",
+  "steps": [
+    {
+      "kind": "update",
+      "sessionUpdate": "agent_message_chunk",
+      "text": "reading lib/types.ts"
+    },
+    { "kind": "readTextFile", "path": "lib/types.ts" },
+    {
+      "kind": "update",
+      "sessionUpdate": "agent_message_chunk",
+      "text": "lib/types.ts ✓ read through the editor"
+    },
+    { "kind": "stopTurn" }
+  ]
+}

@@ -1,0 +1,302 @@
+{
+  "title": "Sermon helper",
+  "nodes": [
+    {
+      "id": "request",
+      "kind": "trigger",
+      "title": "Sermon requested",
+      "out": "SermonRequest",
+      "config": {
+        "mode": "event",
+        "topic": "sermon.request",
+        "idempotencyKeyPath": "body.requestId",
+        "requesterEmailPath": "body.email"
+      }
+    },
+    {
+      "id": "send_upload_form",
+      "kind": "emailSend",
+      "title": "Ask for the sources",
+      "in": "SermonRequest",
+      "config": {
+        "to": "requestingUser",
+        "subject": "Upload what you are preaching from",
+        "bodyMarkdown": "Send me your sources and I will draft an outline.",
+        "attach": {
+          "type": "form",
+          "form": {
+            "fields": [
+              {
+                "id": "documents",
+                "label": "Source documents",
+                "type": "fileUpload",
+                "required": true,
+                "multiple": true
+              },
+              { "id": "theme", "label": "Theme", "type": "text" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "await_upload",
+      "kind": "durableWait",
+      "title": "Wait for the upload",
+      "out": "UploadedDocs",
+      "config": {
+        "source": { "kind": "form", "email": "send_upload_form" },
+        "timeoutDays": 7,
+        "onTimeout": "resend",
+        "maxResends": 2,
+        "afterMax": "abort"
+      }
+    },
+    {
+      "id": "extract_text",
+      "kind": "step",
+      "title": "Extract the text",
+      "in": "UploadedDocs",
+      "out": "DocumentText",
+      "handler": { "export": "extractText" },
+      "config": {}
+    },
+    {
+      "id": "chunk_text",
+      "kind": "step",
+      "title": "Split it into passages",
+      "in": "DocumentText",
+      "out": "TextChunks",
+      "handler": { "export": "chunkText" },
+      "config": {}
+    },
+    {
+      "id": "embed_chunks",
+      "kind": "step",
+      "title": "Embed each passage",
+      "in": "TextChunks",
+      "out": "EmbeddedChunks",
+      "handler": { "export": "embedChunk" },
+      "forEach": { "itemsPath": "chunks", "concurrency": 4 },
+      "retry": { "maxAttempts": 4, "intervalSeconds": 2, "backoffRate": 2 },
+      "config": {}
+    },
+    {
+      "id": "store_embeddings",
+      "kind": "transaction",
+      "title": "Store the embeddings",
+      "in": "EmbeddedChunks",
+      "out": "EmbeddingIndex",
+      "handler": { "export": "storeEmbeddings" },
+      "config": {}
+    },
+    {
+      "id": "has_readings",
+      "kind": "branch",
+      "title": "Were readings given?",
+      "in": "EmbeddingIndex",
+      "config": {
+        "cases": [
+          {
+            "port": "given",
+            "when": { "path": "readings", "op": "nonempty" }
+          }
+        ],
+        "elsePort": "lookup"
+      }
+    },
+    {
+      "id": "fetch_lectionary",
+      "kind": "apiCall",
+      "title": "Look up the lectionary",
+      "in": "EmbeddingIndex",
+      "out": "LectionaryReadings",
+      "handler": { "export": "fetchLectionary" },
+      "config": { "service": "lectionary" }
+    },
+    {
+      "id": "draft_outline",
+      "kind": "step",
+      "title": "Draft the outline",
+      "in": "LectionaryReadings",
+      "out": "SermonOutline",
+      "handler": { "export": "draftOutline" },
+      "config": {}
+    },
+    {
+      "id": "score_outline",
+      "kind": "step",
+      "title": "Score the outline",
+      "in": "SermonOutline",
+      "out": "ScoredOutline",
+      "handler": { "export": "scoreOutline" },
+      "config": {}
+    },
+    {
+      "id": "refine_outline",
+      "kind": "branch",
+      "title": "Good enough?",
+      "in": "ScoredOutline",
+      "config": {
+        "cases": [
+          {
+            "port": "revise",
+            "when": { "path": "score", "op": "lt", "value": 0.8 },
+            "maxIterations": 3,
+            "onExhausted": "continue"
+          }
+        ],
+        "elsePort": "ready"
+      }
+    },
+    {
+      "id": "assemble_draft",
+      "kind": "step",
+      "title": "Assemble the draft",
+      "in": "ScoredOutline",
+      "out": "SermonDraft",
+      "handler": { "export": "assembleDraft" },
+      "config": {}
+    },
+    {
+      "id": "request_approval",
+      "kind": "approval",
+      "title": "Approve the draft",
+      "in": "SermonDraft",
+      "config": {
+        "to": "requestingUser",
+        "subject": "Your sermon draft is ready",
+        "message": "Read it through and let me know whether to publish.",
+        "timeoutDays": 3
+      }
+    },
+    {
+      "id": "publish_draft",
+      "kind": "transaction",
+      "title": "Publish the draft",
+      "in": "SermonDraft",
+      "out": "PublishedSermon",
+      "handler": { "export": "publishDraft" },
+      "config": {}
+    },
+    {
+      "id": "notify_author",
+      "kind": "emailSend",
+      "title": "Tell the author how it went",
+      "config": {
+        "to": "requestingUser",
+        "subject": "Your sermon helper is done",
+        "bodyMarkdown": "Here is where your sermon ended up.",
+        "attach": { "type": "none" }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": { "node": "request" },
+      "to": { "node": "send_upload_form" },
+      "type": "SermonRequest"
+    },
+    {
+      "id": "e2",
+      "from": { "node": "send_upload_form" },
+      "to": { "node": "await_upload" }
+    },
+    {
+      "id": "e3",
+      "from": { "node": "await_upload" },
+      "to": { "node": "extract_text" },
+      "type": "UploadedDocs"
+    },
+    {
+      "id": "e4",
+      "from": { "node": "extract_text" },
+      "to": { "node": "chunk_text" },
+      "type": "DocumentText"
+    },
+    {
+      "id": "e5",
+      "from": { "node": "chunk_text" },
+      "to": { "node": "embed_chunks" },
+      "type": "TextChunks"
+    },
+    {
+      "id": "e6",
+      "from": { "node": "embed_chunks" },
+      "to": { "node": "store_embeddings" },
+      "type": "EmbeddedChunks"
+    },
+    {
+      "id": "e7",
+      "from": { "node": "store_embeddings" },
+      "to": { "node": "has_readings" },
+      "type": "EmbeddingIndex"
+    },
+    {
+      "id": "e8",
+      "from": { "node": "has_readings", "port": "lookup" },
+      "to": { "node": "fetch_lectionary" },
+      "type": "EmbeddingIndex"
+    },
+    {
+      "id": "e9",
+      "from": { "node": "has_readings", "port": "given" },
+      "to": { "node": "draft_outline" },
+      "type": "LectionaryReadings"
+    },
+    {
+      "id": "e10",
+      "from": { "node": "fetch_lectionary" },
+      "to": { "node": "draft_outline" },
+      "type": "LectionaryReadings"
+    },
+    {
+      "id": "e11",
+      "from": { "node": "draft_outline" },
+      "to": { "node": "score_outline" },
+      "type": "SermonOutline"
+    },
+    {
+      "id": "e12",
+      "from": { "node": "score_outline" },
+      "to": { "node": "refine_outline" },
+      "type": "ScoredOutline"
+    },
+    {
+      "id": "e13",
+      "from": { "node": "refine_outline", "port": "revise" },
+      "to": { "node": "draft_outline" },
+      "back": true
+    },
+    {
+      "id": "e14",
+      "from": { "node": "refine_outline", "port": "ready" },
+      "to": { "node": "assemble_draft" },
+      "type": "ScoredOutline"
+    },
+    {
+      "id": "e15",
+      "from": { "node": "assemble_draft" },
+      "to": { "node": "request_approval" },
+      "type": "SermonDraft"
+    },
+    {
+      "id": "e16",
+      "from": { "node": "request_approval", "port": "approved" },
+      "to": { "node": "publish_draft" },
+      "type": "SermonDraft"
+    },
+    {
+      "id": "e17",
+      "from": { "node": "publish_draft" },
+      "to": { "node": "notify_author" },
+      "type": "PublishedSermon"
+    },
+    {
+      "id": "e18",
+      "from": { "node": "request_approval", "port": "rejected" },
+      "to": { "node": "notify_author" }
+    }
+  ]
+}
