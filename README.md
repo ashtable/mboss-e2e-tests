@@ -7,15 +7,22 @@ a real browser, asserting on what those services actually did. It also drives
 the MCP server's shipped bundle as real child processes over stdio, which is
 where packaging and cross-process behaviour become visible.
 
-Three suites live here, and they are separate on purpose:
+It also installs the VS Code extension's packaged `.vsix` into a throwaway
+profile and drives a real editor through it, which is where the whole
+propose-preview-approve loop becomes one thing rather than four.
 
-- **`npm test`** — vitest over the helpers and the two fixtures. No containers,
-  no submodules, no browsers. Runs on a bare checkout.
+Four suites live here, and they are separate on purpose:
+
+- **`npm test`** — vitest over the helpers and the three fixtures. No
+  containers, no submodules, no browsers. Runs on a bare checkout.
 - **`npm run e2e:cloud`** — Playwright over the compose stack. Needs
   `npm run stack:up` first.
 - **`npm run e2e:mcp`** — Playwright over the MCP bundle. No browser; needs
   `npm run mcp:build` first, and Docker, because one of its specs scaffolds a
   whole app and brings up that app's own Postgres.
+- **`npm run e2e:ext`** — Playwright over the packaged extension, inside a real
+  VS Code. No browser and no Docker; needs `npm run vscode:build` first, and a
+  display (`xvfb-run` on a headless machine).
 
 ## Run
 
@@ -31,6 +38,9 @@ npm run stack:down
 
 npm run mcp:build     # npm ci + esbuild inside mboss-mcp-server
 npm run e2e:mcp
+
+npm run vscode:build  # npm ci + esbuild + vsce package inside mboss-vscode
+npm run e2e:ext       # xvfb-run -a npm run e2e:ext on a headless machine
 ```
 
 `stack:up` builds three service images from the nested submodules, so the first
@@ -48,26 +58,33 @@ the three addresses and names `npm run stack:up` when one is not answering,
 then warms `/` and `/admin`, because a cold container's first request to a
 route loads its bundle and opens its connections, which can outlast an action
 timeout; for `mcp` it checks the bundle is built and names `npm run mcp:build`
-when it is not. Which projects a run covers is read off `--project` on the
-command line — `FullConfig.projects` is the declared list, not the filtered
+when it is not; for `extension` it checks the package is built and names
+`npm run vscode:build`. Which projects a run covers is read off `--project` on
+the command line — `FullConfig.projects` is the declared list, not the filtered
 one, so reading it would make `e2e:mcp` demand a mailsink no MCP spec talks to.
+
+The design text says global setup builds the MCP bundle and the VSIX. It
+deliberately does not. A build failure should read as a build failing, in its
+own CI step, rather than as every spec in a project failing on a missing file.
 
 ## Scripts
 
-| Script               | What it does                                     |
-| -------------------- | ------------------------------------------------ |
-| `npm test`           | vitest — helpers and fixtures, no containers     |
-| `npm run e2e:cloud`  | The `cloud` project against the compose stack    |
-| `npm run e2e:mcp`    | The `mcp` project against the built bundle       |
-| `npm run e2e:ext`    | The `extension` project — declared, no specs yet |
-| `npm run mcp:build`  | Build the MCP bundle from the nested checkout    |
-| `npm run stack:up`   | `docker compose up --build --wait`               |
-| `npm run stack:down` | `docker compose down -v`                         |
-| `npm run stack:logs` | Follow every service's log                       |
-| `npm run lint`       | `tsc --noEmit`, ESLint, a Prettier check         |
-| `npm run format`     | Rewrite with Prettier                            |
+| Script                 | What it does                                   |
+| ---------------------- | ---------------------------------------------- |
+| `npm test`             | vitest — helpers and fixtures, no containers   |
+| `npm run e2e:cloud`    | The `cloud` project against the compose stack  |
+| `npm run e2e:mcp`      | The `mcp` project against the built bundle     |
+| `npm run e2e:ext`      | The `extension` project against the packaged   |
+|                        | extension, in a real VS Code                   |
+| `npm run mcp:build`    | Build the MCP bundle from the nested checkout  |
+| `npm run vscode:build` | Package the extension from the nested checkout |
+| `npm run stack:up`     | `docker compose up --build --wait`             |
+| `npm run stack:down`   | `docker compose down -v`                       |
+| `npm run stack:logs`   | Follow every service's log                     |
+| `npm run lint`         | `tsc --noEmit`, ESLint, a Prettier check       |
+| `npm run format`       | Rewrite with Prettier                          |
 
-CI runs three jobs. `lint-unit` checks out without submodules and runs
+CI runs four jobs. `lint-unit` checks out without submodules and runs
 `npm ci && npm run lint && npm test` — which is the only place the hermetic
 claim is actually tested. `cloud` checks out `submodules: recursive`, brings
 the stack up and runs the suite, uploading traces, videos and compose logs on
@@ -77,10 +94,12 @@ core's source — builds the bundle and runs the MCP specs; it installs no
 browser, because nothing in that project takes a `page`, but it does need
 Docker, because `generated-app-durability` brings up the app it scaffolded. It
 also does a full `npm install` inside that app, which is the slow part of the
-job and is unavoidable: the app has to actually run. There is still no
-`extension` job: `playwright test --project=extension` against an empty project
-exits 1 with "No tests found", so a job for it would be permanently red until
-its specs arrive.
+job and is unavoidable: the app has to actually run. `extension` needs
+`submodules: recursive` for a third reason — `mboss-vscode` nests core, the MCP
+server and the skill, and its package inlines all three — packages the
+extension and runs the suite under `xvfb-run`, caching the pinned editor
+against `.vscode-version`'s hash so a 300MB download is paid once per pin
+rather than once per pull request.
 
 ## The stack
 
@@ -308,6 +327,68 @@ A second test builds the emitted `Dockerfile`. A packaging assertion only; the
 image is never run, because what the durability path needs is a process this
 spec can kill.
 
+## The packaged extension
+
+`tests/extension/` installs the `.vsix` that `mboss-vscode` ships into a
+throwaway profile and drives a real VS Code through it — the palette, the
+composer in the agent panel, the button on a proposal card. Nothing here
+imports that repository's TypeScript either; the nested checkout is a build
+context like the other four.
+
+`helpers/vscode.ts` is the only file that knows anything about Electron, the
+workbench's DOM or how a webview is put together. A spec asks for "the canvas
+frame" or says "trust this folder"; it never spells a launch flag or a Monaco
+class name.
+
+**The frame chain, because nothing documents it.** A webview is two nested
+iframes: the workbench holds an `iframe.webview` whose name is a fresh GUID,
+that holds a second one which calls itself `pending-frame` whatever it is
+showing, and the extension's page is inside the second. Both are moved out of
+the view they belong to and into an overlay layer, so there is no walking down
+from the pane either. The helper tells them apart by asking each frame which
+module it loaded — the built page loads exactly one, and its path ends in the
+build's own entry-point name — which survives a redesign, a translation and a
+VS Code that renames its layers. `topology.spec.ts` asserts that chain on its
+own, so an editor that moves it fails as one spec rather than as all of them.
+
+**A fresh profile _and_ a fresh project directory, every run.** Both are
+minted under the system temp root, and both matter. A workspace-trust decision
+is remembered against the folder's path and outlives the profile that made it —
+verified by hand: a byte-identical copy of a trusted project at a new path
+starts restricted, and a brand-new copy at the trusted path starts trusted,
+however new the profile is. A reused fixture path would therefore arrive
+already trusted and every assertion about a restricted window would pass
+without having been tested. Temp rather than beside the suite because the
+per-profile IPC socket lives inside the profile and the OS caps a Unix socket
+path at 103 characters; a deep path fails the launch outright.
+
+**Two editor settings are load-bearing.** `window.dialogStyle: custom` and
+`files.simpleDialog.enable: true`. Without them a message box and a file dialog
+are drawn by the operating system, outside the page and out of reach — and
+`mBoss: New Project` asks for a folder. Workspace trust is deliberately left
+on: turning it off would prove the extension works in the one case it is never
+asked about.
+
+**`scaffold.spec.ts`** — `mBoss: New Project` from the palette in an empty
+window: the folder dialog, the name box, and then the tree on disk —
+`.mcp.json`, the bundle and its `VERSION`, the skill in both the places an
+agent looks, `lib/`, `src/app/`, `src/workflows/`. The vendored bundle is then
+asked to be an MCP server, from inside the project, the way an agent starts it.
+
+**`prompt-preview-approve.spec.ts`** — the whole loop. A project with the fake
+ACP agent registered through `mboss.agent`'s `custom` slot answers the
+sermon-helper prompt: the panel traces it reading both catalogs and dry-running
+a spec through the vendored server, the canvas draws
+`PREVIEW CHANGES · +16 nodes +18 edges` over sixteen dashed blocks, and
+**Approve & apply** writes the document at revision 2, marks the proposal
+`applied`, regenerates, and sends the agent one synthetic prompt — which the
+agent answers by scaffolding the code behind.
+
+**`prompt-preview-refine.spec.ts`** — the other answer. **Refine** puts the
+cursor back in the composer and changes nothing at all; asking again is what
+replaces a proposal, and the older one flips to `discarded` because core
+superseded it, not because the panel stopped drawing it.
+
 ## Scaffolding, across a process boundary
 
 `scaffolder/scaffold-project.mjs` is how the durability spec gets a real
@@ -405,10 +486,33 @@ own suite. Moving them needs an `mboss-web` commit, and deleting them would
 lose real coverage nothing replaces — so they stay here, named, until someone
 moves them.
 
-**The `extension` project is declared and empty.** It exists so that surface
-has a home to land in rather than a config change to remember. `playwright test
---list` is content with an empty `testDir`; running one is not, which is why it
-has no CI job yet.
+**Approving mid-turn loses the prompt the approval sends.** The extension
+takes one turn at a time and silently drops anything it is asked to send during
+one — which includes the synthetic prompt **Approve & apply** sends the agent.
+The proposal is still applied and the card still says so, so nothing on screen
+says the agent was never told. A proposal card appears mid-turn (the proposal
+is written by a tool call, and the panel sees the file the moment it lands), so
+this is reachable by anybody quick with the mouse. Both extension specs work
+around it by waiting for the composer's stop control to go before they approve.
+The fix belongs in `mboss-vscode` — either the card waits for the turn, or an
+approval's prompt queues instead of being dropped — and is not this
+repository's to make.
+
+**The sermon-helper graph is one the compiler cannot express.** The sixteen
+nodes validate and apply, and code generation then refuses them, which the
+status bar reports honestly as `codegen ✗` and "Some workflows produced no
+code". Two reasons, in order: nine handlers the graph names are not exported
+yet, which is a warning to the rules and a refusal to the compiler — that one
+is the loop working, and scaffolding them is what the approval prompt asks for.
+Underneath it, verified by scaffolding all nine by hand, is a second refusal
+that no amount of scaffolding clears: `draft_outline` is fed from two different
+branches, and the emitter gives a block one value. So `e2e:ext` cannot assert a
+generated workflow file, and does not pretend to — `tests/mcp/` is where a
+generated app is compiled, installed and run.
+
+**`e2e:ext` runs no `tsc` over what it generates.** It generates nothing, per
+the entry above; and type-checking a scaffolded project needs a full
+`npm install`, which `generated-app-durability` already pays for and proves.
 
 **The fake agent's stdio entry point has no automated test.** Its scenario
 player is driven in-process by the hermetic suite, which is what keeps that
@@ -423,7 +527,21 @@ bundle, proposal on disk.
 extension sends after **Approve & apply**. The two cannot share a constant —
 nested checkouts are build contexts here, not imported source — so if that copy
 changes on the extension side, this scenario's `prompt` has to change with it,
-and the symptom is a turn that errors naming the prompt it was given.
+and the symptom is a turn that errors naming the prompt it was given. The
+extension spec asserts only `Scaffold the handlers.`, an ASCII substring no
+terminal or paste can break; the canonical copy is `APPROVAL_PROMPT` in
+`mboss-vscode`'s `src/preview/approve.ts`.
+
+**The sermon-helper scenario's `baseRevision` is a copy of the fixture's.**
+The dry run is made against revision 1, and
+`fixtures/projects/sermon-helper/.mboss/workflows/sermon_helper.workflow.json`
+is the empty draft it is made against. Give that draft nodes and the run comes
+back `REVISION_CONFLICT`; take the file away and the banner's counts stop being
+a pure addition. The draft exists because a preview is drawn on the canvas
+showing the workflow it names, and the canvas is an editor for a file — so a
+proposal for a workflow with no file has nowhere to appear at all. That is
+worth knowing on its own: **an agent proposing a brand-new workflow cannot be
+previewed**, only approved blind from the sidebar card.
 
 **The `minimal` fixture project installs nothing.** `project_build`'s type-check
 therefore cannot resolve `@dbos-inc/dbos-sdk` or `vitest`, and `mcp-bundle`

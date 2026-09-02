@@ -6,3 +6,7 @@ coverage/
 # Playwright's own output.
 playwright-report/
 test-results/
+
+# The pinned VS Code build, downloaded and cached
+# by the extension suite.
+.vscode-test/

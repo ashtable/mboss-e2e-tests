@@ -31,12 +31,14 @@
       "args": {
         "name": "sermon_helper",
         "dryRun": true,
+        "baseRevision": 1,
         "spec": { "$file": "../specs/sermon_helper.spec.json" }
       },
       "diffs": [
         {
           "path": ".mboss/workflows/sermon_helper.workflow.json",
-          "newText": "{\n  \"$schema\": \"https://mboss.dev/schemas/workflow-v1.json\",\n  \"version\": 1,\n  \"revision\": 1,\n  \"name\": \"sermon_helper\",\n  \"title\": \"Sermon helper\"\n}\n"
+          "oldText": "{\n  \"$schema\": \"https://mboss.dev/schemas/workflow-v1.json\",\n  \"version\": 1,\n  \"revision\": 1,\n  \"name\": \"sermon_helper\",\n  \"title\": \"Sermon helper\",\n  \"nodes\": [],\n  \"edges\": []\n}\n",
+          "newText": "{\n  \"$schema\": \"https://mboss.dev/schemas/workflow-v1.json\",\n  \"version\": 1,\n  \"revision\": 2,\n  \"name\": \"sermon_helper\",\n  \"title\": \"Sermon helper\"\n}\n"
         }
       ]
     },

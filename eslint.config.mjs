@@ -8,13 +8,17 @@ export default tseslint.config(
       'node_modules/**',
       'playwright-report/**',
       'test-results/**',
-      // The four nested checkouts are build
+      // The editor builds this suite downloads and
+      // drives. Not source of any repo.
+      '.vscode-test/**',
+      // The five nested checkouts are build
       // contexts, not sources of this repo; each
       // lints itself in its own CI.
       'mboss-web/**',
       'mboss-nodejs-api/**',
       'mboss-nodejs-dbos/**',
       'mboss-mcp-server/**',
+      'mboss-vscode/**',
       'fixtures/oidc-mock/tls/**',
     ],
   },
