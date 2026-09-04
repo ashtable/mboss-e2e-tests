@@ -30,6 +30,16 @@ import { E2E_BASE_URL } from './helpers/stack.js';
  * own clock: a run unzips a package, starts an
  * extension host, and waits on code generation.
  *
+ * `extension-stack` is the same editor with a
+ * Docker daemon behind it: one journey that has the
+ * Runs panel bring a scaffolded project's own
+ * compose stack up and run a workflow against it.
+ * It is a project of its own rather than a file in
+ * `extension` because it is opt-in — it wants
+ * minutes, an image build and two free ports, and
+ * `npm run e2e:ext` and CI are both entitled to run
+ * on a machine with no Docker at all.
+ *
  * `retries: 0` and `workers: 1`, because a suite
  * that retries hides the flake it was written to
  * catch, and because these specs write rows a
@@ -76,6 +86,12 @@ export default defineConfig({
     {
       name: 'extension',
       testDir: './tests/extension',
+      timeout: 300_000,
+      expect: { timeout: 60_000 },
+    },
+    {
+      name: 'extension-stack',
+      testDir: './tests/extension-stack',
       timeout: 300_000,
       expect: { timeout: 60_000 },
     },

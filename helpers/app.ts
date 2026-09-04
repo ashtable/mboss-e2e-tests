@@ -86,6 +86,70 @@ services:
     ports: !override ['127.0.0.1:${POSTGRES_PORT}:5432']
 `;
 
+/**
+ * A fourth offset, for the one journey that brings
+ * a scaffolded project's whole stack up rather than
+ * only its database.
+ *
+ * The extension's Runs panel runs
+ * `docker compose up --build --wait` over the
+ * compose file the scaffold wrote, which publishes
+ * Postgres on 5432 and the app on 3000 — both of
+ * them the dev stack's. A bind conflict there
+ * surfaces inside the panel as a stack that would
+ * not start, which is indistinguishable from the
+ * regression that spec exists to catch, so the
+ * project is moved off every port anything else on
+ * this machine uses before the editor is ever
+ * opened on it.
+ */
+export const EXTENSION_POSTGRES_PORT = 5435;
+export const EXTENSION_APP_PORT = 3300;
+
+/**
+ * The moved database, as the project's own `.env`
+ * has to name it.
+ *
+ * The extension reads that file to find the ledger
+ * it draws the Runs panel from, and it reads it
+ * from this machine rather than from inside a
+ * container — so the name here is the published
+ * port, while the app's own connection string is
+ * compose's `postgres:5432` and stays that way.
+ */
+export const EXTENSION_DATABASE_URL = onLoopback(EXTENSION_POSTGRES_PORT);
+
+/** The scaffold's database, as it is reached from
+ *  this machine once its port has been moved. */
+function onLoopback(port: number): string {
+  return `postgres://app:app@127.0.0.1:${port}/app`;
+}
+
+/**
+ * The same replacement as above, for both services.
+ *
+ * The app's mapping is here and not in the
+ * durability spec's override because that spec
+ * never starts the app in a container — it runs it
+ * as a host process, so the emitted `3000:3000` is
+ * never bound. This journey does start it.
+ */
+export const EXTENSION_COMPOSE_OVERRIDE = `# Written by the e2e suite.
+#
+# This project's stack is brought up by the
+# extension while three other stacks may be up on
+# this machine. Compose concatenates \`ports\` when
+# it merges, so each of these replaces a list
+# rather than adding to it.
+
+services:
+  postgres:
+    ports: !override ['127.0.0.1:${EXTENSION_POSTGRES_PORT}:5432']
+
+  app:
+    ports: !override ['127.0.0.1:${EXTENSION_APP_PORT}:3000']
+`;
+
 /** The scaffolder, run by plain Node. */
 const SCAFFOLDER = fileURLToPath(
   new URL('../scaffolder/scaffold-project.mjs', import.meta.url),

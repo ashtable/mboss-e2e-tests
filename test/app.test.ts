@@ -3,6 +3,9 @@ import { describe, expect, test } from 'vitest';
 import {
   APP_PORT,
   COMPOSE_OVERRIDE,
+  EXTENSION_APP_PORT,
+  EXTENSION_COMPOSE_OVERRIDE,
+  EXTENSION_POSTGRES_PORT,
   POSTGRES_PORT,
   parseEnv,
   withEnv,
@@ -105,5 +108,34 @@ describe('COMPOSE_OVERRIDE', () => {
     // own is 5433/3100.
     expect([5432, 5433]).not.toContain(POSTGRES_PORT);
     expect([3000, 3100]).not.toContain(APP_PORT);
+  });
+});
+
+describe('EXTENSION_COMPOSE_OVERRIDE', () => {
+  /**
+   * The extension brings the whole stack up, app
+   * included, where the durability spec only ever
+   * starts Postgres. So this one moves two ports
+   * rather than one — and the app's mapping matters
+   * most, because `3000:3000` is what the dev stack
+   * publishes and a bind conflict inside
+   * `docker compose up` reads exactly like the Runs
+   * panel failing to start anything.
+   */
+  test('replaces both published ports rather than adding to them', () => {
+    expect(EXTENSION_COMPOSE_OVERRIDE).toContain(
+      `ports: !override ['127.0.0.1:${EXTENSION_POSTGRES_PORT}:5432']`,
+    );
+    expect(EXTENSION_COMPOSE_OVERRIDE).toContain(
+      `ports: !override ['127.0.0.1:${EXTENSION_APP_PORT}:3000']`,
+    );
+  });
+
+  test('moves off every other stack on this machine', () => {
+    // The dev stack is 5432/3000, this repo's own
+    // is 5433/3100, and the durability spec's app
+    // is 5434/3200.
+    expect([5432, 5433, POSTGRES_PORT]).not.toContain(EXTENSION_POSTGRES_PORT);
+    expect([3000, 3100, APP_PORT]).not.toContain(EXTENSION_APP_PORT);
   });
 });

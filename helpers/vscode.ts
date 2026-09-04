@@ -21,7 +21,13 @@ import {
   resolveCliArgsFromVSCodeExecutablePath,
 } from '@vscode/test-electron';
 
-import { scaffoldApp } from './app.js';
+import {
+  EXTENSION_APP_PORT,
+  EXTENSION_COMPOSE_OVERRIDE,
+  EXTENSION_DATABASE_URL,
+  rewriteEnv,
+  scaffoldApp,
+} from './app.js';
 
 /**
  * Driving the packaged extension inside a real VS
@@ -309,6 +315,18 @@ export type FixtureRequest = {
  * directory, because the scaffold is given a
  * parent and a name the way the command is;
  * `discardExtensionProject` takes both away.
+ *
+ * Its ports are moved before the editor ever sees
+ * it, and every project gets that whether or not it
+ * will be started. The scaffold publishes Postgres
+ * on 5432 and the app on 3000, which are the dev
+ * stack's, and the one spec that has the Runs panel
+ * bring a stack up would otherwise fail on a bind
+ * conflict that reads exactly like the panel
+ * failing to start anything. Rewriting it in one
+ * place rather than in that spec is what keeps the
+ * next spec to start a stack from inheriting the
+ * collision.
  */
 export async function extensionProject(
   request: FixtureRequest,
@@ -324,6 +342,16 @@ export async function extensionProject(
     bundle: join(SHIPPED, 'mcp', 'server.js'),
     version: join(SHIPPED, 'mcp', 'VERSION'),
   });
+
+  await rewriteEnv(project, {
+    DATABASE_URL: EXTENSION_DATABASE_URL,
+    DBOS_SYSTEM_DATABASE_URL: EXTENSION_DATABASE_URL,
+    APP_BASE_URL: `http://127.0.0.1:${EXTENSION_APP_PORT}`,
+  });
+  await writeFile(
+    join(project, 'docker-compose.override.yml'),
+    EXTENSION_COMPOSE_OVERRIDE,
+  );
 
   await vendorSkill(project);
 

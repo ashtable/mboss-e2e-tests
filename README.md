@@ -11,7 +11,7 @@ It also installs the VS Code extension's packaged `.vsix` into a throwaway
 profile and drives a real editor through it, which is where the whole
 propose-preview-approve loop becomes one thing rather than four.
 
-Four suites live here, and they are separate on purpose:
+Five suites live here, and they are separate on purpose:
 
 - **`npm test`** — vitest over the helpers and the three fixtures. No
   containers, no submodules, no browsers. Runs on a bare checkout.
@@ -23,6 +23,10 @@ Four suites live here, and they are separate on purpose:
 - **`npm run e2e:ext`** — Playwright over the packaged extension, inside a real
   VS Code. No browser and no Docker; needs `npm run vscode:build` first, and a
   display (`xvfb-run` on a headless machine).
+- **`npm run e2e:stack`** — the same editor with Docker behind it: one journey
+  that has the Runs panel bring a scaffolded project's own compose stack up and
+  run a workflow against it. Opt-in, not in CI, and refused in one sentence
+  when the daemon is down or one of its two ports is taken.
 
 ## Run
 
@@ -41,6 +45,8 @@ npm run e2e:mcp
 
 npm run vscode:build  # npm ci + esbuild + vsce package inside mboss-vscode
 npm run e2e:ext       # xvfb-run -a npm run e2e:ext on a headless machine
+
+npm run e2e:stack     # opt-in: the same package, with Docker behind it
 ```
 
 `stack:up` builds three service images from the nested submodules, so the first
@@ -59,7 +65,9 @@ then warms `/` and `/admin`, because a cold container's first request to a
 route loads its bundle and opens its connections, which can outlast an action
 timeout; for `mcp` it checks the bundle is built and names `npm run mcp:build`
 when it is not; for `extension` it checks the package is built and names
-`npm run vscode:build`. Which projects a run covers is read off `--project` on
+`npm run vscode:build`; and for `extension-stack` it checks that too, then that
+the Docker daemon answers and that both ports the journey's stack publishes are
+free. Which projects a run covers is read off `--project` on
 the command line — `FullConfig.projects` is the declared list, not the filtered
 one, so reading it would make `e2e:mcp` demand a mailsink no MCP spec talks to.
 
@@ -76,6 +84,8 @@ own CI step, rather than as every spec in a project failing on a missing file.
 | `npm run e2e:mcp`      | The `mcp` project against the built bundle     |
 | `npm run e2e:ext`      | The `extension` project against the packaged   |
 |                        | extension, in a real VS Code                   |
+| `npm run e2e:stack`    | The `extension-stack` journey, over a compose  |
+|                        | stack the Runs panel starts itself             |
 | `npm run mcp:build`    | Build the MCP bundle from the nested checkout  |
 | `npm run vscode:build` | Package the extension from the nested checkout |
 | `npm run stack:up`     | `docker compose up --build --wait`             |
@@ -389,6 +399,13 @@ cursor back in the composer and changes nothing at all; asking again is what
 replaces a proposal, and the older one flips to `discarded` because core
 superseded it, not because the panel stopped drawing it.
 
+**`inspector-in-canvas.spec.ts`** — selecting a block costs nothing else on
+screen. The Inspector is a column of the canvas' own page rather than a view
+that takes the agent panel's place, so the sharpest assertion here is about a
+panel this spec never selects anything in: an unsent draft left in the composer
+is still there afterwards, which is the one piece of state that can tell "still
+there" from "built again".
+
 **`canvas-editing.spec.ts`** — building a workflow by hand, with a real
 pointer. A Step chip is carried out of the rail and let go over the pane, and
 the saved file has a block it did not have before. That block is then dragged,
@@ -399,6 +416,37 @@ for twice, because it is shipped twice: the button in the canvas' toolbar, and
 `mBoss: Arrange Workflow` in the palette. The second time, a block is moved
 first — a graph nobody has placed has nothing to let go of, so the assertion
 would read true of a command that did nothing at all.
+
+## The stack, from inside the editor
+
+`tests/extension-stack/` is one spec and its own Playwright project. It is the
+only place the whole product runs at once: a project is scaffolded, its one
+step's code is generated from the document, the Runs panel brings the project's
+own containers up with `docker compose up --build --wait`, a run is fired at
+the app inside them by hand, and the run is followed to `done` through the
+ledger Postgres wrote. Then **Open flight recorder** opens the see tab on that
+run's id. There is no terminal anywhere in it.
+
+It is opt-in — `npm run e2e:stack`, never `e2e:ext`, and not in `ci.yml`. It
+wants a Docker daemon, an image build and minutes, and every other extension
+spec is entitled to run on a machine with none of them. What it can be refused
+for is checked in global setup and said in one sentence, because a stack that
+cannot come up otherwise fails deep inside the journey as a Start Local Stack
+that did nothing — which is exactly the regression the journey exists to catch.
+
+**Every extension project is moved off the ports the scaffold emits.** The
+compose file a scaffold writes publishes Postgres on 5432 and the app on 3000,
+which are the dev stack's; `extensionProject()` writes a
+`docker-compose.override.yml` replacing both mappings and rewrites the `.env`
+the extension reads its ledger's address out of. The rewrite is there rather
+than in the spec so the next spec to start a stack does not inherit the
+collision, and the gate checks the ports the journey actually binds rather than
+the ones it moved off — gating on 5432 would refuse to run on every machine
+with the dev stack up, which is the machine the rewrite was written for.
+
+`two-blocks` is the fixture, not `crash-fixture`: the latter is triggered by an
+event, its second block sends mail that fails without a sink and its third
+parks on a form, so the furthest a run of it reaches is `waiting`.
 
 ## Scaffolding, across a process boundary
 
