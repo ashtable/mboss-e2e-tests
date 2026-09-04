@@ -136,7 +136,7 @@ export async function assertExtensionBuilt(): Promise<void> {
  * would be matching on something localized, or on
  * markup a redesign owns.
  */
-export type WebviewName = 'canvas' | 'inspector' | 'sidebar' | 'runs' | 'see';
+export type WebviewName = 'canvas' | 'sidebar' | 'runs' | 'see';
 
 /** A running editor, driven. */
 export type DrivenVsCode = {
@@ -147,13 +147,23 @@ export type DrivenVsCode = {
    *  rendered. */
   webview(name: WebviewName): Promise<FrameLocator>;
 
-  /** Whether it is on screen right now — the
-   *  question a view being swapped out asks. */
+  /** Whether it is on screen right now, asked once
+   *  and answered either way. */
   showsWebview(name: WebviewName): Promise<boolean>;
 
   /** Runs a command from the palette, by the title
    *  it shows there. */
   runCommand(title: string): Promise<void>;
+
+  /** Writes the open document to disk.
+   *
+   *  A webview that edits a workflow edits the
+   *  buffer VS Code owns, and nothing more —
+   *  while codegen, the runs list and any
+   *  assertion about a file all read the disk. So
+   *  a spec that changed something and then read
+   *  the file would be reading what it opened. */
+  save(): Promise<void>;
 
   /** Opens a project file in whichever editor
    *  claims it. */
@@ -258,6 +268,7 @@ export async function driveVsCode(
     showsWebview: async (name) =>
       (await showingWebview(page, name)) !== undefined,
     runCommand: (title) => runCommand(page, title),
+    save: () => runCommand(page, 'File: Save'),
     openFile: (relative) => openFile(page, relative),
     answerFolderPick: (path) => answerFolderPick(page, path),
     answerInput: (text) => answerInput(page, text),
@@ -532,11 +543,12 @@ async function webviewFrame(
  * That webview's frame if it is on screen at this
  * instant, and nothing if it is not.
  *
- * Kept apart from the wait above because two of
- * these views take turns in one container — the
- * Inspector replaces the agent panel while a block
- * is selected — and a helper that only ever waits
- * can say "not yet" but never "gone".
+ * Kept apart from the wait above because a helper
+ * that only ever waits can say "not yet" but never
+ * "gone". A spec whose point is that a panel is
+ * still there needs the second answer, and needs it
+ * at the moment it asks rather than after a minute
+ * of hoping.
  *
  * On screen rather than merely present: the editor
  * hoists every webview into one overlay layer, and

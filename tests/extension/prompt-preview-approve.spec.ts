@@ -143,9 +143,14 @@ test.describe('preview and approve', () => {
       .filter({ hasText: 'workflow.apply_spec' });
 
     await expect(call).toHaveAttribute('data-status', 'completed');
-    await expect(call.locator('.tool-title')).toHaveText(
-      'workflow.apply_spec dryRun',
-    );
+
+    // A row is what was done and what it was done
+    // to, and the panel sets the second half apart:
+    // the tool's name is the verb, and the argument
+    // that made it a rehearsal rather than a write
+    // is the thing it acted on.
+    await expect(call.locator('.tool-verb')).toHaveText('workflow.apply_spec');
+    await expect(call.locator('.tool-target')).toHaveText('dryRun');
   });
 
   /**
@@ -171,8 +176,11 @@ test.describe('preview and approve', () => {
     );
 
     // Drawn in pencil: every block is arriving, so
-    // every block is dashed.
-    await expect(canvas.locator('[data-proposed="true"]')).toHaveCount(NODES);
+    // every block is dashed. Arriving is one of the
+    // states a block can be drawn in rather than a
+    // flag beside them, which is what makes it lose
+    // to selection and win over a run's colours.
+    await expect(canvas.locator('[data-state="proposed"]')).toHaveCount(NODES);
   });
 
   /**
@@ -194,6 +202,18 @@ test.describe('preview and approve', () => {
     await card.locator('[data-approve]').click();
 
     await expect(card).toHaveAttribute('data-at', 'applied');
+
+    // And it is written into the log the agent's own
+    // work is written into, marked as the person's.
+    // The transcript is the record of what happened
+    // to this project, and an approval is the one
+    // thing in it that nobody was asked to do — so
+    // an approval missing from it reads as the agent
+    // having applied its own proposal.
+    const applied = sidebar.locator('[data-tool-call][data-by="person"]');
+
+    await expect(applied).toHaveAttribute('data-status', 'applied');
+    await expect(applied.locator('.tool-verb')).toHaveText('Apply proposal');
 
     // Now let the agent's own question be answered,
     // which is what ends the turn the approval

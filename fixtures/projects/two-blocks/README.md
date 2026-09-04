@@ -12,8 +12,13 @@ graph on which "click a block" means anything —
 must stay that way, so a spec that has to select
 something cannot use it.
 
-The handler `answerIt` is deliberately absent from
-`lib/`. A graph whose code behind does not exist yet
-is an ordinary state, and core says so with a
-warning rather than an error, so its absence costs
-these specs nothing.
+The handler `answerIt` is here, and typed to match
+the block that names it. It used to be deliberately
+absent, back when the specs that used this fixture
+read the warning its absence produced. They no
+longer do, and a graph that can actually run is
+worth more than one that cannot: the step has a
+function behind it, the function has a signature the
+picker can offer, and the whole thing goes from
+opening the document to finishing a run without
+anything on screen being wrong on purpose.
