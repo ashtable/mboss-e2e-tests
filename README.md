@@ -389,6 +389,17 @@ cursor back in the composer and changes nothing at all; asking again is what
 replaces a proposal, and the older one flips to `discarded` because core
 superseded it, not because the panel stopped drawing it.
 
+**`canvas-editing.spec.ts`** — building a workflow by hand, with a real
+pointer. A Step chip is carried out of the rail and let go over the pane, and
+the saved file has a block it did not have before. That block is then dragged,
+and afterwards every block in the file has a position — including the two
+nobody touched, which is what stops them drifting the next time the engine lays
+the graph out. **Arrange** takes every position back off again, and it is asked
+for twice, because it is shipped twice: the button in the canvas' toolbar, and
+`mBoss: Arrange Workflow` in the palette. The second time, a block is moved
+first — a graph nobody has placed has nothing to let go of, so the assertion
+would read true of a command that did nothing at all.
+
 ## Scaffolding, across a process boundary
 
 `scaffolder/scaffold-project.mjs` is how the durability spec gets a real

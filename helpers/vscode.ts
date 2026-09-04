@@ -703,10 +703,24 @@ async function trustFolder(page: Page): Promise<void> {
     .waitFor({ state: 'detached' });
 }
 
-/** Somewhere in the workbench that is neither a
- *  webview nor a document. */
+/**
+ * Somewhere in the workbench that is neither a
+ * webview nor a document.
+ *
+ * The whole activity bar entry is clicked, not the
+ * icon inside it. The editor draws a badge over
+ * that icon whenever something is unsaved, and a
+ * badge is the icon's sibling rather than its
+ * child — so a click aimed at the icon is refused
+ * as intercepted, and every spec that saves twice
+ * finds the second save waiting on a badge to go
+ * away that only saving would take away.
+ */
 async function parkFocus(page: Page): Promise<void> {
-  await page.locator('.activitybar [aria-label^="Explorer"]').first().click();
+  await page
+    .locator('.activitybar .action-item:has([aria-label^="Explorer"])')
+    .first()
+    .click();
 }
 
 function pause(ms: number): Promise<void> {
