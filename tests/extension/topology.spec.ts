@@ -59,7 +59,7 @@ test.describe('the webview frame chain', () => {
   });
 
   /**
-   * Two of the five webviews are on screen at once
+   * Two of the four webviews are on screen at once
    * here, in the same overlay layer, and telling
    * them apart is the other half of what the helper
    * does. A chain that resolved but always answered

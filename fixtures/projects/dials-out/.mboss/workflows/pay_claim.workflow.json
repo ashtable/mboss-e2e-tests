@@ -1,0 +1,48 @@
+{
+  "$schema": "https://mboss.dev/schemas/workflow-v1.json",
+  "version": 1,
+  "revision": 1,
+  "name": "pay_claim",
+  "title": "Pay claim",
+  "nodes": [
+    {
+      "id": "claim_filed",
+      "kind": "trigger",
+      "title": "Claim filed",
+      "config": { "mode": "manual" },
+      "out": "Claim"
+    },
+    {
+      "id": "charge_card",
+      "kind": "step",
+      "title": "Charge card",
+      "handler": { "export": "chargeCard" },
+      "in": "Claim",
+      "out": "Claim",
+      "config": {}
+    },
+    {
+      "id": "record_payment",
+      "kind": "transaction",
+      "title": "Record payment",
+      "handler": { "export": "recordPayment" },
+      "in": "Claim",
+      "out": "Claim",
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": { "node": "claim_filed", "port": "out" },
+      "to": { "node": "charge_card" },
+      "type": "Claim"
+    },
+    {
+      "id": "e2",
+      "from": { "node": "charge_card", "port": "out" },
+      "to": { "node": "record_payment" },
+      "type": "Claim"
+    }
+  ]
+}

@@ -15,6 +15,7 @@
     "e2e:cloud": "playwright test --project=cloud",
     "e2e:mcp": "playwright test --project=mcp",
     "e2e:ext": "playwright test --project=extension",
+    "e2e:stack": "playwright test --project=extension-stack",
     "mcp:build": "cd mboss-mcp-server && npm ci && npm run build:bundle",
     "vscode:build": "cd mboss-vscode && npm ci && npm run package",
     "stack:up": "docker compose -f docker-compose.e2e.yml up --build --wait",
