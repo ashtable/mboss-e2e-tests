@@ -49,6 +49,10 @@ test.describe('a handler that dials out', () => {
   /** Calls a payment service. */
   const DIALS_OUT = 'chargeCard';
 
+  /** Reaches outward too, on a socket it builds on
+   *  the line that dials it. */
+  const BUILDS_AND_DIALS = 'wireSettlement';
+
   /** Writes to the app's own database, and is here
    *  so that a picker with nothing in it cannot be
    *  mistaken for a picker that put everything
@@ -72,14 +76,22 @@ test.describe('a handler that dials out', () => {
     );
   };
 
-  /** Where the fixture's one outward call is, as the
+  /** Opens the drawer the put-away rows are behind.
+   *  The control is a toggle and the block stays
+   *  selected from one test to the next, so pressing
+   *  it unasked would shut what the test before had
+   *  opened. */
+  const reveal = async (): Promise<void> => {
+    if ((await row(DIALS_OUT).count()) === 0) await hidden().click();
+
+    await expect(row(DIALS_OUT)).toBeVisible();
+  };
+
+  /** Where a handler's one outward call is, as the
    *  editor counts lines. */
-  const dialsOutAt = async (): Promise<number> => {
-    const source = await readFile(
-      join(project, 'lib', `${DIALS_OUT}.ts`),
-      'utf8',
-    );
-    const at = source.split('\n').findIndex((line) => line.includes('fetch('));
+  const outwardLineOf = async (fn: string, call: string): Promise<number> => {
+    const source = await readFile(join(project, 'lib', `${fn}.ts`), 'utf8');
+    const at = source.split('\n').findIndex((line) => line.includes(call));
 
     expect(at).toBeGreaterThanOrEqual(0);
 
@@ -124,6 +136,7 @@ test.describe('a handler that dials out', () => {
     await select('charge_card', 'Node inspector · Step');
 
     await expect(row(DIALS_OUT)).toBeVisible();
+    await expect(row(BUILDS_AND_DIALS)).toBeVisible();
     await expect(row(LOCAL)).toBeVisible();
     await expect(hidden()).toHaveCount(0);
   });
@@ -137,10 +150,57 @@ test.describe('a handler that dials out', () => {
     await expect(row(LOCAL)).toBeVisible();
     await expect(row(DIALS_OUT)).toHaveCount(0);
 
-    await hidden().click();
+    await reveal();
 
     await expect(row(DIALS_OUT).locator('.lib-note')).toHaveText(
-      `calls fetch at line ${await dialsOutAt()}, needs a step`,
+      `calls fetch at line ${await outwardLineOf(DIALS_OUT, 'fetch(')}, ` +
+        'needs a step',
+    );
+  });
+
+  /**
+   * The same refusal, asked of the other way to
+   * write the same line.
+   *
+   * Not a second test of one rule. The package is
+   * built from a checkout of the library rather
+   * than from a resolution of it, so nothing in
+   * this suite has ever been able to say which
+   * commit of the rules a `.vsix` carries: a
+   * package zipped from a stale build directory,
+   * or from a gitlink nobody moved, greys `fetch`
+   * exactly as it always did and says nothing.
+   * What is asked here is something the library
+   * only learned recently — that a socket built on
+   * the line that dials it is still a call out of
+   * the handler, and not a chain rooted at a name
+   * with an inner call to be recorded in its
+   * place.
+   *
+   * Asked of the note rather than of the row's
+   * absence, which is what the test above can ask
+   * because it meets a closed drawer. By here the
+   * drawer is open and every row is in the page,
+   * so counting rows would be asking whether the
+   * drawer is open. The note is the thing itself:
+   * the picker writes one under a function it has
+   * put away and none at all under one it is
+   * offering.
+   *
+   * The module is in the sentence because the
+   * callee is not a global. `fetch` is the whole
+   * story under its own name; `new Socket().connect`
+   * is a method on something, and the something is
+   * where a person goes to look.
+   */
+  test('and the same call built inline, named where it is', async () => {
+    await select('record_payment', 'Node inspector · Transaction');
+    await reveal();
+
+    const at = await outwardLineOf(BUILDS_AND_DIALS, '.connect(');
+
+    await expect(row(BUILDS_AND_DIALS).locator('.lib-note')).toHaveText(
+      `calls new Socket().connect (node:net) at line ${at}, needs a step`,
     );
   });
 });
