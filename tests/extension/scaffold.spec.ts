@@ -51,41 +51,50 @@ test.describe('mBoss: New Project', () => {
     await rm(parent, { recursive: true, force: true });
   });
 
+  /** Everything `mBoss: New Project` leaves behind. */
+  const WRITTEN = [
+    // What a coding agent reads to find the server,
+    // and the server itself.
+    '.mcp.json',
+    '.mboss/mcp/server.js',
+    '.mboss/mcp/VERSION',
+    // The skill, in both the places an agent looks
+    // for one.
+    '.mboss/skills/mboss/SKILL.md',
+    '.mboss/skills/mboss/references/tools.md',
+    '.claude/skills/mboss/SKILL.md',
+    '.claude/skills/mboss/references/tools.md',
+    // And the two directories a workflow's code lives
+    // in either side of generation.
+    'lib',
+    'src/app/main.ts',
+    'src/workflows/index.ts',
+  ];
+
   /**
    * One test writes the project and the rest read
    * it, so the wait for the command to finish is
    * here rather than in `beforeAll` — a hook that
    * timed out would report as every test in the
    * file failing for no stated reason.
+   *
+   * The wait covers the whole list, not the first
+   * file on it. The command writes the project and
+   * then vendors the skill into it, so the bundle
+   * landing says the command started rather than
+   * that it finished — a machine slow enough to be
+   * caught between the two halves would otherwise
+   * read a project that is still being written.
    */
   test('writes a project with the control plane inside it', async () => {
     await expect(async () => {
-      await access(join(project, '.mboss', 'mcp', 'server.js'));
+      for (const path of WRITTEN) {
+        await expect(
+          access(join(project, ...path.split('/'))),
+          `${path} should exist in a new project`,
+        ).resolves.toBeUndefined();
+      }
     }).toPass();
-
-    for (const path of [
-      // What a coding agent reads to find the
-      // server, and the server itself.
-      '.mcp.json',
-      '.mboss/mcp/server.js',
-      '.mboss/mcp/VERSION',
-      // The skill, in both the places an agent
-      // looks for one.
-      '.mboss/skills/mboss/SKILL.md',
-      '.mboss/skills/mboss/references/tools.md',
-      '.claude/skills/mboss/SKILL.md',
-      '.claude/skills/mboss/references/tools.md',
-      // And the two directories a workflow's code
-      // lives in either side of generation.
-      'lib',
-      'src/app/main.ts',
-      'src/workflows/index.ts',
-    ]) {
-      await expect(
-        access(join(project, ...path.split('/'))),
-        `${path} should exist in a new project`,
-      ).resolves.toBeUndefined();
-    }
   });
 
   /**
