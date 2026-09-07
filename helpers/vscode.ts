@@ -142,7 +142,7 @@ export async function assertExtensionBuilt(): Promise<void> {
  * would be matching on something localized, or on
  * markup a redesign owns.
  */
-export type WebviewName = 'canvas' | 'sidebar' | 'runs' | 'see';
+export type WebviewName = 'canvas' | 'sidebar' | 'runs' | 'see' | 'gallery';
 
 /** A running editor, driven. */
 export type DrivenVsCode = {
@@ -198,6 +198,16 @@ export type DriveRequest = {
    *  agent because the editor spawns it, and a
    *  child inherits the editor's environment. */
   agentTranscript?: string;
+
+  /** Whether a fake agent started from this window
+   *  says it can take a resource block beside the
+   *  words. It says yes unless this says otherwise,
+   *  which is what the agents it stands in for do.
+   *  Reaches it the same way the transcript does —
+   *  the agent's own settings have no room for an
+   *  environment, and the window's is the one it
+   *  inherits. */
+  agentEmbeddedContext?: boolean;
 };
 
 /**
@@ -261,6 +271,9 @@ export async function driveVsCode(
       ...(request.agentTranscript === undefined
         ? {}
         : { MBOSS_FAKE_AGENT_TRANSCRIPT: request.agentTranscript }),
+      ...(request.agentEmbeddedContext === false
+        ? { MBOSS_FAKE_AGENT_EMBEDDED_CONTEXT: '0' }
+        : {}),
     },
     timeout: LAUNCH_MS,
   });
@@ -401,6 +414,16 @@ const execute = promisify(execFile);
  * workspace settings. `resource` scope is what lets
  * them be written into one project rather than into
  * the machine.
+ *
+ * Three settings and no more: the slot a custom
+ * agent is registered in carries an id, a command
+ * and its arguments, and nowhere to put an
+ * environment. So everything a spec wants to say to
+ * the agent about how to behave — where to write
+ * its transcript, whether to claim embedded context
+ * — is said to the window instead, at
+ * `driveVsCode`, and reaches the agent because the
+ * editor spawns it.
  */
 async function useFakeAgent(project: string): Promise<void> {
   const agent = join(HERE, '..', 'fixtures', 'fake-acp-agent', 'index.ts');

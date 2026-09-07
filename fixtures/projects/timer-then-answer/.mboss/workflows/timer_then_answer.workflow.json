@@ -1,0 +1,48 @@
+{
+  "$schema": "https://mboss.dev/schemas/workflow-v1.json",
+  "version": 1,
+  "revision": 1,
+  "name": "timer_then_answer",
+  "title": "Timer then answer",
+  "nodes": [
+    {
+      "id": "started_by_hand",
+      "kind": "trigger",
+      "title": "Started by hand",
+      "config": { "mode": "manual" },
+      "out": "Enquiry"
+    },
+    {
+      "id": "let_it_wait",
+      "kind": "durableWait",
+      "title": "Let it wait",
+      "config": {
+        "source": { "kind": "timer", "seconds": 60 },
+        "onTimeout": "abort"
+      }
+    },
+    {
+      "id": "answer_it",
+      "kind": "step",
+      "title": "Answer it",
+      "handler": { "export": "answerIt" },
+      "in": "Enquiry",
+      "out": "Answer",
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": { "node": "started_by_hand", "port": "out" },
+      "to": { "node": "let_it_wait" },
+      "type": "Enquiry"
+    },
+    {
+      "id": "e2",
+      "from": { "node": "let_it_wait", "port": "out" },
+      "to": { "node": "answer_it" },
+      "type": "Enquiry"
+    }
+  ]
+}
