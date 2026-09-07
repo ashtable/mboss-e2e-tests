@@ -153,14 +153,14 @@ jobs:
   #
   # The budget, per step, the way the mcp job spells
   # its own out: 600s for the package build, 300s per
-  # spec file and four of them, and 300s for `npm
-  # ci`. Half an hour, and in practice it finishes in
-  # about five minutes. A cap below that would make
-  # GitHub the thing that stops a hung run, and a
-  # cancelled job leaves no trace and no report.
+  # spec file and eight of them, and 300s for `npm
+  # ci`. Fifty-five minutes, and in practice it
+  # finishes in about five. A cap below that would
+  # make GitHub the thing that stops a hung run, and
+  # a cancelled job leaves no trace and no report.
   extension:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:

@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { _electron } from '@playwright/test';
-import type { FrameLocator, Page } from '@playwright/test';
+import type { FrameLocator, Locator, Page } from '@playwright/test';
 import {
   downloadAndUnzipVSCode,
   resolveCliArgsFromVSCodeExecutablePath,
@@ -175,11 +175,19 @@ export type DrivenVsCode = {
    *  claims it. */
   openFile(relative: string): Promise<void>;
 
+  /** The tab a file is open in, named the way the
+   *  tab strip names it. */
+  editorTab(name: string): Locator;
+
   /** Answers an open dialog with a directory. */
   answerFolderPick(path: string): Promise<void>;
 
   /** Answers an input box with a line of text. */
   answerInput(text: string): Promise<void>;
+
+  /** Answers an input box with whatever it was
+   *  offering, and says what that was. */
+  acceptInput(): Promise<string>;
 
   /** Answers the workspace-trust question with yes,
    *  through the editor a person would use. */
@@ -289,8 +297,10 @@ export async function driveVsCode(
     runCommand: (title) => runCommand(page, title),
     save: () => runCommand(page, 'File: Save'),
     openFile: (relative) => openFile(page, relative),
+    editorTab: (name) => editorTab(page, name),
     answerFolderPick: (path) => answerFolderPick(page, path),
     answerInput: (text) => answerInput(page, text),
+    acceptInput: () => acceptInput(page),
     trustFolder: () => trustFolder(page),
     close: async () => {
       await app.close();
@@ -682,6 +692,24 @@ async function openFile(page: Page, relative: string): Promise<void> {
 }
 
 /**
+ * The tab a file is open in.
+ *
+ * Found by the resource the workbench marks each
+ * tab with, rather than by the label beside its
+ * icon: the label is what a theme shortens and what
+ * a second file of the same name makes ambiguous,
+ * while the mark is the file the tab holds.
+ *
+ * A locator rather than an answer, because the
+ * question a spec asks of it is whether a click
+ * somewhere else eventually opened one — and that
+ * is a wait, not a reading.
+ */
+function editorTab(page: Page, name: string): Locator {
+  return page.locator(`.tabs-container .tab[data-resource-name="${name}"]`);
+}
+
+/**
  * Answers an open dialog with a directory.
  *
  * The simple file dialog is a quick input with a
@@ -718,6 +746,28 @@ async function answerInput(page: Page, text: string): Promise<void> {
   await box.waitFor();
   await box.fill(text);
   await box.press('Enter');
+}
+
+/**
+ * Takes an input box's own suggestion, and answers
+ * with what it took.
+ *
+ * A spec that filled the box with the name it
+ * expected would pass whatever the command had
+ * prefilled — including nothing at all. Reading the
+ * value first and pressing Enter without touching
+ * it is what makes the suggestion itself the thing
+ * under test.
+ */
+async function acceptInput(page: Page): Promise<string> {
+  const box = page.locator('.quick-input-box input');
+
+  await box.waitFor();
+
+  const offered = await box.inputValue();
+  await box.press('Enter');
+
+  return offered;
 }
 
 /**
