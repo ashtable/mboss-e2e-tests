@@ -189,6 +189,10 @@ export type DrivenVsCode = {
    *  offering, and says what that was. */
   acceptInput(): Promise<string>;
 
+  /** Presses the named button on a modal the editor
+   *  drew itself, and says what the modal said. */
+  answerDialog(label: string): Promise<string>;
+
   /** Answers the workspace-trust question with yes,
    *  through the editor a person would use. */
   trustFolder(): Promise<void>;
@@ -301,6 +305,7 @@ export async function driveVsCode(
     answerFolderPick: (path) => answerFolderPick(page, path),
     answerInput: (text) => answerInput(page, text),
     acceptInput: () => acceptInput(page),
+    answerDialog: (label) => answerDialog(page, label),
     trustFolder: () => trustFolder(page),
     close: async () => {
       await app.close();
@@ -768,6 +773,37 @@ async function acceptInput(page: Page): Promise<string> {
   await box.press('Enter');
 
   return offered;
+}
+
+/**
+ * Reads a modal the editor drew itself, answers it,
+ * and hands back what it said.
+ *
+ * A message box is workbench chrome rather than a
+ * webview, so nothing in it carries a data
+ * attribute and the words are the only thing a spec
+ * can hold it to. The whole box is read rather than
+ * the two elements inside it that hold the message
+ * and its detail: which of them a sentence lands in
+ * is the editor's business, and a spec that picked
+ * one would be asserting about that instead of
+ * about what a person sees.
+ *
+ * It works at all because the throwaway profile
+ * asks for custom dialogs. Drawn by the operating
+ * system, this would be outside the page entirely.
+ */
+async function answerDialog(page: Page, label: string): Promise<string> {
+  const dialog = page.locator('.monaco-dialog-box');
+
+  await dialog.waitFor({ timeout: LAUNCH_MS });
+
+  const said = (await dialog.innerText()).trim();
+
+  await dialog.locator('.monaco-button', { hasText: label }).click();
+  await dialog.waitFor({ state: 'detached' });
+
+  return said;
 }
 
 /**
