@@ -6,10 +6,22 @@ one, and it holds the one thing a scaffold does not
 write and the replay specs need: a workflow with a
 step behind it that can be made to fail.
 
-Two blocks, wired: started by hand, then one step.
+Three blocks, wired: started by hand, a step that
+loads the claim, then the step that settles it.
 Nothing else, because everything else would be
 something to wait for between the failure and the
 mend.
+
+The middle block is load bearing, and it is the
+one thing here that is not about the failure. A
+fork copies the durable rows recorded below the
+point it starts from; a workflow whose failing
+step is its first one has nothing below it, so its
+replay carries nothing over and reads exactly like
+running the thing again. `loadClaim` finishes
+before `settleIt` is reached and changes nothing,
+so the fork inherits its row and a spec can say so
+out loud.
 
 Started with `{ "fail": true }`, the run ends
 failed. The refusal is this line, in
@@ -42,9 +54,12 @@ purpose.
 
 Validated as written: the real validator answered
 `valid` with no errors and no warnings, and the
-document compiles to one `DBOS.runStep` around
-`settleIt`. The step takes the default retry
-policy — three attempts, a second apart, doubling —
-so the run spends a few seconds failing rather than
-failing at once. A spec waiting for `failed` should
-expect that.
+document compiles to one `DBOS.runStep` per step —
+`loadClaim` at function id 0 and `settleIt` at 1.
+That arithmetic is what a replay from `settle_it`
+rests on: it starts at 1, so the one row below it
+is the one copied. Each step takes the default
+retry policy — three attempts, a second apart,
+doubling — so the run spends a few seconds failing
+rather than failing at once. A spec waiting for
+`failed` should expect that.

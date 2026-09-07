@@ -13,6 +13,15 @@
       "out": "Claim"
     },
     {
+      "id": "load_claim",
+      "kind": "step",
+      "title": "Load claim",
+      "handler": { "export": "loadClaim" },
+      "in": "Claim",
+      "out": "Claim",
+      "config": {}
+    },
+    {
       "id": "settle_it",
       "kind": "step",
       "title": "Settle it",
@@ -26,6 +35,12 @@
     {
       "id": "e1",
       "from": { "node": "started_by_hand", "port": "out" },
+      "to": { "node": "load_claim" },
+      "type": "Claim"
+    },
+    {
+      "id": "e2",
+      "from": { "node": "load_claim", "port": "out" },
       "to": { "node": "settle_it" },
       "type": "Claim"
     }

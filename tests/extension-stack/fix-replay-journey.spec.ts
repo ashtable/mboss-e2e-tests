@@ -44,6 +44,9 @@ test.describe('a failure, a fix, and a replay over it', () => {
   const NAME = 'fix-replay';
   const WORKFLOW = 'failing_step';
   const BLOCK = 'settle_it';
+  /** The block in front of it, whose recorded row
+   *  the fork copies instead of running. */
+  const CARRIED = 'load_claim';
   const HANDLER = join('lib', 'settleIt.ts');
 
   /** The one line in the handler that refuses, and
@@ -208,10 +211,16 @@ test.describe('a failure, a fix, and a replay over it', () => {
    * The fork is a second run of the same workflow
    * over the input the first one was given, and it
    * finishes — which it could only do on code the
-   * failure did not have. The step is asserted to
-   * have run rather than to have been carried over:
-   * this workflow records one operation, and a
-   * replay from it is a replay of everything it has.
+   * failure did not have.
+   *
+   * Both halves of that are read off the Trace,
+   * because a fork that redid the whole run would
+   * also end done and prove nothing. The block in
+   * front of the boundary carries its recorded row
+   * over and is marked as carried; the block the
+   * replay started from ran new. Only the pair of
+   * them says this was a replay rather than a
+   * second run of the same thing.
    */
   test('the fork runs the mended step and finishes', async () => {
     test.setTimeout(600_000);
@@ -231,6 +240,17 @@ test.describe('a failure, a fix, and a replay over it', () => {
     ).toBeVisible();
 
     await see.locator('[data-see-tab="trace"]').click();
+
+    // Claimed on the row rather than on a
+    // `.provenance` span: a row can carry two of
+    // those, and which one is first is not the
+    // point being made here.
+    const carried = see
+      .locator(`[data-trace-group="${CARRIED}"] [data-trace-op]`)
+      .first();
+
+    await expect(carried).toHaveAttribute('data-reuse', 'recorded');
+    await expect(carried).toContainText('↺ recorded');
 
     const op = see
       .locator(`[data-trace-group="${BLOCK}"] [data-trace-op]`)

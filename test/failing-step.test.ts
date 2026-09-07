@@ -17,9 +17,11 @@ import { describe, expect, test } from 'vitest';
  *
  * What is worth catching here is the part the
  * validator has no opinion about: a handler that
- * no longer refuses anything, or that refuses it
- * from somewhere other than the one line a spec
- * rewrites while a run is on screen.
+ * no longer refuses anything, that refuses it from
+ * somewhere other than the one line a spec
+ * rewrites while a run is on screen, or a step
+ * losing the block in front of it that a replay
+ * has to inherit.
  */
 
 const PROJECT = fileURLToPath(
@@ -51,13 +53,21 @@ describe('the failing-step fixture', () => {
   });
 
   /**
-   * Two blocks and no more. The story is about
-   * what one step does with one input, so a third
-   * block would only be something else to wait
-   * for between the failure and the replay.
+   * Three blocks, and the middle one is the reason
+   * this fixture can prove anything. A fork copies
+   * the durable rows below the point it starts
+   * from, so a step with nothing in front of it
+   * has nothing to carry over and its replay reads
+   * the same as a second run. A fourth block would
+   * only be something else to wait for between the
+   * failure and the replay.
    */
-  test('starts by hand and runs one step', () => {
-    expect(ir.nodes.map((node) => node.kind)).toEqual(['trigger', 'step']);
+  test('starts by hand and runs two steps', () => {
+    expect(ir.nodes.map((node) => node.kind)).toEqual([
+      'trigger',
+      'step',
+      'step',
+    ]);
   });
 
   /**
@@ -92,7 +102,7 @@ describe('the failing-step fixture', () => {
       .map((node) => node.handler?.export)
       .filter((exported) => exported !== undefined);
 
-    expect(named).toEqual(['settleIt']);
+    expect(named).toEqual(['loadClaim', 'settleIt']);
 
     for (const exported of named) {
       expect(

@@ -1,6 +1,6 @@
 // The code-behind's own types.
 //
-// Both blocks in this project's workflow are typed
+// Every block in this project's workflow is typed
 // against a name in here. Core refuses to validate
 // a graph whose code-behind exports no type a block
 // names, so leaving these out would put an error on
