@@ -1,0 +1,48 @@
+{
+  "$schema": "https://mboss.dev/schemas/workflow-v1.json",
+  "version": 1,
+  "revision": 1,
+  "name": "failing_step",
+  "title": "Failing step",
+  "nodes": [
+    {
+      "id": "started_by_hand",
+      "kind": "trigger",
+      "title": "Started by hand",
+      "config": { "mode": "manual" },
+      "out": "Claim"
+    },
+    {
+      "id": "load_claim",
+      "kind": "step",
+      "title": "Load claim",
+      "handler": { "export": "loadClaim" },
+      "in": "Claim",
+      "out": "Claim",
+      "config": {}
+    },
+    {
+      "id": "settle_it",
+      "kind": "step",
+      "title": "Settle it",
+      "handler": { "export": "settleIt" },
+      "in": "Claim",
+      "out": "Settlement",
+      "config": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": { "node": "started_by_hand", "port": "out" },
+      "to": { "node": "load_claim" },
+      "type": "Claim"
+    },
+    {
+      "id": "e2",
+      "from": { "node": "load_claim", "port": "out" },
+      "to": { "node": "settle_it" },
+      "type": "Claim"
+    }
+  ]
+}

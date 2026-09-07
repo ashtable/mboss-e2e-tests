@@ -11,6 +11,8 @@ import {
   type McpConnector,
   type McpServerDescriptor,
   type Scenario,
+  type Transcript,
+  type TranscriptLine,
 } from '../fixtures/fake-acp-agent/index.js';
 import { drive, STUB_FILE_CONTENT, type Peer } from './support/acp-client.js';
 
@@ -149,6 +151,113 @@ describe('the handshake', () => {
     );
     expect([...kinds].some((kind) => kind.includes('terminal'))).toBe(false);
 
+    peer.close();
+  });
+
+  /**
+   * Both real adapters the extension can start
+   * advertise embedded context, so a stand-in that
+   * stayed quiet about it would put every spec on
+   * the fallback path and leave the one an agent
+   * actually takes untested.
+   */
+  test('advertises embedded context unless told not to', async () => {
+    const peer = drive(createFakeAcpAgent({ scenarios: [] }));
+
+    const initialized = await peer.initialize();
+
+    expect(initialized.agentCapabilities?.promptCapabilities).toEqual({
+      embeddedContext: true,
+    });
+    peer.close();
+  });
+
+  /**
+   * The other branch is a real one — an agent that
+   * takes text and nothing else — and a spec has to
+   * be able to ask for it.
+   */
+  test('says so when it is told not to', async () => {
+    const peer = drive(
+      createFakeAcpAgent({ scenarios: [], embeddedContext: false }),
+    );
+
+    const initialized = await peer.initialize();
+
+    expect(initialized.agentCapabilities?.promptCapabilities).toEqual({
+      embeddedContext: false,
+    });
+    peer.close();
+  });
+});
+
+describe('what it writes down about a prompt', () => {
+  /** A transcript held in memory rather than on disk. */
+  function recording(): { transcript: Transcript; lines: TranscriptLine[] } {
+    const lines: TranscriptLine[] = [];
+
+    return { transcript: { record: (line) => lines.push(line) }, lines };
+  }
+
+  const EVIDENCE = {
+    type: 'resource' as const,
+    resource: {
+      uri: 'mboss://run-evidence/abc',
+      mimeType: 'application/json',
+      text: '{"workflowId":"abc"}',
+    },
+  };
+
+  /** The blocks of the last prompt that arrived. */
+  function lastPrompt(lines: readonly TranscriptLine[]): unknown[] {
+    const prompts = lines.filter(
+      (line) => line.from === 'client' && line.method === 'session/prompt',
+    );
+    const last = prompts.at(-1)?.params as { prompt?: unknown[] } | undefined;
+
+    return last?.prompt ?? [];
+  }
+
+  /**
+   * The attachment rides beside the words as its
+   * own block, and a spec asking whether it arrived
+   * has nothing to read unless the whole list is
+   * written down. It is: the recording happens
+   * before anything matches a scenario, so a block
+   * the player has no use for is kept anyway.
+   */
+  test('keeps a resource sent beside the text', async () => {
+    const { transcript, lines } = recording();
+    const peer = drive(createFakeAcpAgent({ scenarios: [fsRead], transcript }));
+
+    await peer.initialize();
+    const sessionId = await peer.open({ cwd: PROJECT, mcpServers: [] });
+    await peer.prompt(sessionId, [
+      { type: 'text', text: fsRead.prompt },
+      EVIDENCE,
+    ]);
+
+    expect(lastPrompt(lines)).toEqual([
+      { type: 'text', text: fsRead.prompt },
+      EVIDENCE,
+    ]);
+    peer.close();
+  });
+
+  /**
+   * And a prompt with nothing attached is one
+   * block, which is what the fenced fallback looks
+   * like from this side.
+   */
+  test('keeps a prompt that is text alone', async () => {
+    const { transcript, lines } = recording();
+    const peer = drive(createFakeAcpAgent({ scenarios: [fsRead], transcript }));
+
+    await peer.initialize();
+    const sessionId = await peer.open({ cwd: PROJECT, mcpServers: [] });
+    await peer.prompt(sessionId, fsRead.prompt);
+
+    expect(lastPrompt(lines)).toEqual([{ type: 'text', text: fsRead.prompt }]);
     peer.close();
   });
 });

@@ -62,6 +62,14 @@ const AGENT_NAME = 'fake-acp-agent';
 /** The environment variable naming the transcript. */
 export const TRANSCRIPT_ENV = 'MBOSS_FAKE_AGENT_TRANSCRIPT';
 
+/**
+ * The environment variable that turns embedded
+ * context off. Set it to `0` and the handshake says
+ * so; anything else, including leaving it unset,
+ * leaves it on.
+ */
+export const EMBEDDED_CONTEXT_ENV = 'MBOSS_FAKE_AGENT_EMBEDDED_CONTEXT';
+
 /** The scenarios shipped beside this module. */
 export const SCENARIOS_DIR = fileURLToPath(
   new URL('./scenarios', import.meta.url),
@@ -188,6 +196,17 @@ export type FakeAgentOptions = {
   transcript?: Transcript;
 
   connect?: McpConnector;
+
+  /**
+   * Whether the handshake says a prompt may carry a
+   * resource block. On unless a caller says
+   * otherwise, because both of the real agents this
+   * one stands in for say yes — a stand-in quieter
+   * than the thing it replaces would put every spec
+   * on the fenced-text fallback and leave the path
+   * an agent actually takes unexercised.
+   */
+  embeddedContext?: boolean;
 };
 
 /**
@@ -211,6 +230,23 @@ export function transcriptFrom(
       appendFileSync(path, `${JSON.stringify(line)}\n`);
     },
   };
+}
+
+/**
+ * Whether the environment turned embedded context
+ * off.
+ *
+ * Only the exact string `0` does. An agent that
+ * cannot take a resource block is the unusual case
+ * here, so it is the one that has to be asked for,
+ * and a variable set to something unexpected leaves
+ * the common answer standing rather than quietly
+ * choosing the rare one.
+ */
+export function embeddedContextFrom(
+  env: Record<string, string | undefined>,
+): boolean {
+  return env[EMBEDDED_CONTEXT_ENV] !== '0';
 }
 
 /**
@@ -271,6 +307,7 @@ export async function loadScenario(file: string): Promise<Scenario> {
 export function createFakeAcpAgent(options: FakeAgentOptions): AgentApp {
   const transcript = options.transcript ?? { record: () => {} };
   const connect = options.connect ?? connectOverStdio;
+  const embeddedContext = options.embeddedContext ?? true;
   const byPrompt = new Map(
     options.scenarios.map((scenario) => [scenario.prompt, scenario]),
   );
@@ -482,12 +519,20 @@ export function createFakeAcpAgent(options: FakeAgentOptions): AgentApp {
     .onRequest('initialize', ({ params }) => {
       heard('initialize', params);
 
-      // Nothing beyond the version is claimed. This
-      // agent loads no session, and it has no use
-      // for a terminal the extension does not offer.
+      // This agent loads no session, and it has no
+      // use for a terminal the extension does not
+      // offer. What it does say is whether a prompt
+      // may carry a resource block — always, either
+      // way round, because an agent that stayed
+      // silent would be read as a no and a spec
+      // could not tell that from a stand-in that
+      // had forgotten to answer.
       return {
         protocolVersion: PROTOCOL_VERSION,
-        agentCapabilities: { loadSession: false },
+        agentCapabilities: {
+          loadSession: false,
+          promptCapabilities: { embeddedContext },
+        },
         agentInfo: { name: AGENT_NAME, version: '1' },
       };
     })
@@ -1012,6 +1057,7 @@ async function main(): Promise<void> {
   const app = createFakeAcpAgent({
     scenarios: await loadScenarios(),
     transcript: transcriptFrom(process.env),
+    embeddedContext: embeddedContextFrom(process.env),
   });
 
   const connection = app.connect(

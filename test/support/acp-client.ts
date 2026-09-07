@@ -3,6 +3,7 @@ import {
   client,
   type AgentApp,
   type ClientConnection,
+  type ContentBlock,
   type InitializeResponse,
   type NewSessionRequest,
   type ReadTextFileRequest,
@@ -47,7 +48,16 @@ export type Peer = {
   /** Opens a session and answers with its id. */
   open(request: NewSessionRequest): Promise<string>;
 
-  prompt(sessionId: string, text: string): Promise<StopReason>;
+  /**
+   * Sends a prompt. A string is the sentence on its
+   * own, which is what most of these tests mean; a
+   * list of blocks is for the ones about what rides
+   * beside it.
+   */
+  prompt(
+    sessionId: string,
+    message: string | ContentBlock[],
+  ): Promise<StopReason>;
 
   cancel(sessionId: string): Promise<void>;
 
@@ -130,10 +140,14 @@ export function drive(app: AgentApp, behaviour: PeerBehaviour = {}): Peer {
       return opened.sessionId;
     },
 
-    prompt: async (sessionId, text) => {
+    prompt: async (sessionId, message) => {
+      const blocks =
+        typeof message === 'string'
+          ? [{ type: 'text' as const, text: message }]
+          : message;
       const stopped = await connection.agent.request('session/prompt', {
         sessionId,
-        prompt: [{ type: 'text', text }],
+        prompt: blocks,
       });
 
       return stopped.stopReason;

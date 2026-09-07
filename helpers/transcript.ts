@@ -48,10 +48,11 @@ export async function transcriptLines(path: string): Promise<TranscriptLine[]> {
  * Everything the editor sent as a prompt, in order,
  * flattened to the text a person would read.
  *
- * An ACP prompt is a list of content blocks; the
- * extension only ever sends one text block, and
- * joining them keeps that an observation rather
- * than an assumption a spec would break on.
+ * An ACP prompt is a list of content blocks and the
+ * words are only some of them. Joining the text
+ * ones and dropping the rest is what a spec about
+ * the sentence wants; a spec about what rode beside
+ * it reads `promptBlocksSent` instead.
  */
 export function promptsSent(lines: readonly TranscriptLine[]): string[] {
   return lines
@@ -59,6 +60,26 @@ export function promptsSent(lines: readonly TranscriptLine[]): string[] {
       (line) => line.from === 'client' && line.method === 'session/prompt',
     )
     .map((line) => textOf(line.params));
+}
+
+/**
+ * The blocks of every prompt the editor sent, in
+ * order and unflattened.
+ *
+ * `promptsSent` reads the words; this reads the
+ * shape. An evidence attachment rides beside the
+ * words as its own block, and a spec asking whether
+ * it was attached at all has nothing to read in the
+ * joined text.
+ */
+export function promptBlocksSent(
+  lines: readonly TranscriptLine[],
+): unknown[][] {
+  return lines
+    .filter(
+      (line) => line.from === 'client' && line.method === 'session/prompt',
+    )
+    .map((line) => blocksOf(line.params));
 }
 
 function textOf(params: unknown): string {
@@ -74,4 +95,19 @@ function textOf(params: unknown): string {
         : '',
     )
     .join('');
+}
+
+/**
+ * The blocks of one prompt, or none when the line
+ * carried something else. Never a throw: a spec
+ * reading a transcript is usually mid-poll, and a
+ * malformed line should fail the assertion it is
+ * about rather than the read.
+ */
+function blocksOf(params: unknown): unknown[] {
+  if (params === null || typeof params !== 'object') return [];
+
+  const { prompt } = params as { prompt?: unknown };
+
+  return Array.isArray(prompt) ? prompt : [];
 }

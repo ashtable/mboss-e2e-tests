@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { _electron } from '@playwright/test';
-import type { FrameLocator, Page } from '@playwright/test';
+import type { FrameLocator, Locator, Page } from '@playwright/test';
 import {
   downloadAndUnzipVSCode,
   resolveCliArgsFromVSCodeExecutablePath,
@@ -142,7 +142,7 @@ export async function assertExtensionBuilt(): Promise<void> {
  * would be matching on something localized, or on
  * markup a redesign owns.
  */
-export type WebviewName = 'canvas' | 'sidebar' | 'runs' | 'see';
+export type WebviewName = 'canvas' | 'sidebar' | 'runs' | 'see' | 'gallery';
 
 /** A running editor, driven. */
 export type DrivenVsCode = {
@@ -175,11 +175,23 @@ export type DrivenVsCode = {
    *  claims it. */
   openFile(relative: string): Promise<void>;
 
+  /** The tab a file is open in, named the way the
+   *  tab strip names it. */
+  editorTab(name: string): Locator;
+
   /** Answers an open dialog with a directory. */
   answerFolderPick(path: string): Promise<void>;
 
   /** Answers an input box with a line of text. */
   answerInput(text: string): Promise<void>;
+
+  /** Answers an input box with whatever it was
+   *  offering, and says what that was. */
+  acceptInput(): Promise<string>;
+
+  /** Presses the named button on a modal the editor
+   *  drew itself, and says what the modal said. */
+  answerDialog(label: string): Promise<string>;
 
   /** Answers the workspace-trust question with yes,
    *  through the editor a person would use. */
@@ -198,6 +210,16 @@ export type DriveRequest = {
    *  agent because the editor spawns it, and a
    *  child inherits the editor's environment. */
   agentTranscript?: string;
+
+  /** Whether a fake agent started from this window
+   *  says it can take a resource block beside the
+   *  words. It says yes unless this says otherwise,
+   *  which is what the agents it stands in for do.
+   *  Reaches it the same way the transcript does —
+   *  the agent's own settings have no room for an
+   *  environment, and the window's is the one it
+   *  inherits. */
+  agentEmbeddedContext?: boolean;
 };
 
 /**
@@ -261,6 +283,9 @@ export async function driveVsCode(
       ...(request.agentTranscript === undefined
         ? {}
         : { MBOSS_FAKE_AGENT_TRANSCRIPT: request.agentTranscript }),
+      ...(request.agentEmbeddedContext === false
+        ? { MBOSS_FAKE_AGENT_EMBEDDED_CONTEXT: '0' }
+        : {}),
     },
     timeout: LAUNCH_MS,
   });
@@ -276,8 +301,11 @@ export async function driveVsCode(
     runCommand: (title) => runCommand(page, title),
     save: () => runCommand(page, 'File: Save'),
     openFile: (relative) => openFile(page, relative),
+    editorTab: (name) => editorTab(page, name),
     answerFolderPick: (path) => answerFolderPick(page, path),
     answerInput: (text) => answerInput(page, text),
+    acceptInput: () => acceptInput(page),
+    answerDialog: (label) => answerDialog(page, label),
     trustFolder: () => trustFolder(page),
     close: async () => {
       await app.close();
@@ -401,6 +429,16 @@ const execute = promisify(execFile);
  * workspace settings. `resource` scope is what lets
  * them be written into one project rather than into
  * the machine.
+ *
+ * Three settings and no more: the slot a custom
+ * agent is registered in carries an id, a command
+ * and its arguments, and nowhere to put an
+ * environment. So everything a spec wants to say to
+ * the agent about how to behave — where to write
+ * its transcript, whether to claim embedded context
+ * — is said to the window instead, at
+ * `driveVsCode`, and reaches the agent because the
+ * editor spawns it.
  */
 async function useFakeAgent(project: string): Promise<void> {
   const agent = join(HERE, '..', 'fixtures', 'fake-acp-agent', 'index.ts');
@@ -659,6 +697,24 @@ async function openFile(page: Page, relative: string): Promise<void> {
 }
 
 /**
+ * The tab a file is open in.
+ *
+ * Found by the resource the workbench marks each
+ * tab with, rather than by the label beside its
+ * icon: the label is what a theme shortens and what
+ * a second file of the same name makes ambiguous,
+ * while the mark is the file the tab holds.
+ *
+ * A locator rather than an answer, because the
+ * question a spec asks of it is whether a click
+ * somewhere else eventually opened one — and that
+ * is a wait, not a reading.
+ */
+function editorTab(page: Page, name: string): Locator {
+  return page.locator(`.tabs-container .tab[data-resource-name="${name}"]`);
+}
+
+/**
  * Answers an open dialog with a directory.
  *
  * The simple file dialog is a quick input with a
@@ -695,6 +751,59 @@ async function answerInput(page: Page, text: string): Promise<void> {
   await box.waitFor();
   await box.fill(text);
   await box.press('Enter');
+}
+
+/**
+ * Takes an input box's own suggestion, and answers
+ * with what it took.
+ *
+ * A spec that filled the box with the name it
+ * expected would pass whatever the command had
+ * prefilled — including nothing at all. Reading the
+ * value first and pressing Enter without touching
+ * it is what makes the suggestion itself the thing
+ * under test.
+ */
+async function acceptInput(page: Page): Promise<string> {
+  const box = page.locator('.quick-input-box input');
+
+  await box.waitFor();
+
+  const offered = await box.inputValue();
+  await box.press('Enter');
+
+  return offered;
+}
+
+/**
+ * Reads a modal the editor drew itself, answers it,
+ * and hands back what it said.
+ *
+ * A message box is workbench chrome rather than a
+ * webview, so nothing in it carries a data
+ * attribute and the words are the only thing a spec
+ * can hold it to. The whole box is read rather than
+ * the two elements inside it that hold the message
+ * and its detail: which of them a sentence lands in
+ * is the editor's business, and a spec that picked
+ * one would be asserting about that instead of
+ * about what a person sees.
+ *
+ * It works at all because the throwaway profile
+ * asks for custom dialogs. Drawn by the operating
+ * system, this would be outside the page entirely.
+ */
+async function answerDialog(page: Page, label: string): Promise<string> {
+  const dialog = page.locator('.monaco-dialog-box');
+
+  await dialog.waitFor({ timeout: LAUNCH_MS });
+
+  const said = (await dialog.innerText()).trim();
+
+  await dialog.locator('.monaco-button', { hasText: label }).click();
+  await dialog.waitFor({ state: 'detached' });
+
+  return said;
 }
 
 /**

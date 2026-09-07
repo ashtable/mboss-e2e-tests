@@ -55,11 +55,14 @@ import {
 test.describe('the Runs panel, over a real stack', () => {
   const NAME = 'stack-journey';
   const WORKFLOW = 'two_blocks';
+  const BLOCK = 'answer_it';
   const QUESTION = 'what does durable execution buy me';
 
   let project: string;
   let vscode: DrivenVsCode;
   let runs: FrameLocator;
+  let see: FrameLocator;
+  let canvas: FrameLocator;
 
   /** Minted by the panel, read off the run it is
    *  following, and the thread through the last
@@ -219,8 +222,101 @@ test.describe('the Runs panel, over a real stack', () => {
   test('Open flight recorder shows that run', async () => {
     await runs.locator(`[data-session-row="${runId}"] [data-open-run]`).click();
 
-    const see = await vscode.webview('see');
+    see = await vscode.webview('see');
 
     await expect(see.locator(`.see[data-run="${runId}"]`)).toBeVisible();
+  });
+
+  /**
+   * The same run twice over: as a picture and as a
+   * list.
+   *
+   * Both are drawn from the rows Postgres holds and
+   * neither is drawn from the other, so they are
+   * asserted apart. The picture's claim is that a
+   * block the ledger has a finished row for is
+   * coloured as finished and one it has nothing for
+   * is not; the list's is that the rows are gathered
+   * under the block that wrote them rather than laid
+   * out flat.
+   *
+   * One group and not two, because a trigger records
+   * nothing: it is how the run started, not
+   * something the run did.
+   */
+  test('the run page draws the blocks and the rows they wrote', async () => {
+    await see.locator('[data-see-tab="graph"]').click();
+
+    await expect(see.locator('[data-pane="graph"]')).toHaveAttribute(
+      'data-showing',
+      'true',
+    );
+
+    await expect(see.locator('[data-run-node]')).toHaveCount(2);
+    await expect(see.locator('[data-run-node="answer_it"]')).toHaveAttribute(
+      'data-state',
+      'done',
+    );
+    await expect(
+      see.locator('[data-run-node="started_by_hand"]'),
+    ).not.toHaveAttribute('data-state', 'done');
+
+    await see.locator('[data-see-tab="trace"]').click();
+
+    await expect(see.locator('[data-trace-group="answer_it"]')).toBeVisible();
+    await expect(
+      see.locator('[data-trace-group]:not([data-trace-group=""])'),
+    ).toHaveCount(1);
+  });
+
+  /**
+   * The way back from a run to the document it was a
+   * run of.
+   *
+   * Beside rather than over, which is the whole
+   * reason the button exists: somebody reading a run
+   * and opening the workflow behind it is comparing
+   * the two. So the run page is asked whether it is
+   * still on screen afterwards, and the answer has
+   * to be yes.
+   */
+  test('Edit workflow opens the document beside the run', async () => {
+    await see.locator('[data-edit-workflow]').click();
+
+    canvas = await vscode.webview('canvas');
+
+    await expect(
+      canvas.locator(`.react-flow__node[data-id="${BLOCK}"]`),
+    ).toBeVisible();
+
+    expect(await vscode.showsWebview('see')).toBe(true);
+  });
+
+  /**
+   * What the run recorded, on the block that
+   * recorded it, in the editor.
+   *
+   * The tab was refused with a hint while nothing
+   * had been run — a claim the plain editor suite
+   * makes, having no stack to run anything on. This
+   * is the other half: with a run followed, the same
+   * tab opens and carries a figure that could only
+   * have come from the ledger.
+   *
+   * The duration is read as a shape rather than a
+   * number. What it says is how long the step took
+   * on this machine, which is not a thing to assert;
+   * that it says a number at all is.
+   */
+  test('the block carries what the run recorded', async () => {
+    await canvas.locator(`.react-flow__node[data-id="${BLOCK}"]`).click();
+    await canvas.locator('[data-inspector-tab="evidence"]').click();
+
+    const evidence = canvas.locator('[data-evidence="block"]');
+
+    await expect(evidence.locator('[data-run-state="done"]')).toBeVisible();
+    await expect(
+      evidence.locator('[data-evidence-field="duration"] .value'),
+    ).toHaveText(/^\d+(\.\d+)? (ms|s)$/);
   });
 });

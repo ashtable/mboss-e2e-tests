@@ -162,4 +162,73 @@ test.describe('the Inspector, in the canvas', () => {
       );
     }).toPass();
   });
+
+  /**
+   * The second face, with nothing behind it.
+   *
+   * Nothing in this window has been run, so the tab
+   * that reads what a run recorded has nothing to
+   * read — and says which of the two things missing
+   * would give it something rather than opening
+   * empty.
+   *
+   * The tab is found by its mark and not by its
+   * words. What it says is "Run evidence", which a
+   * spec matching a title case by case would be
+   * asserting about typography, and a translated
+   * window would not say at all.
+   */
+  test('offers no evidence until there is a run', async () => {
+    await canvas.locator('.react-flow__node[data-id="answer_it"]').click();
+
+    await expect(
+      canvas.locator('[data-inspector-tab="evidence"]'),
+    ).toBeDisabled();
+    await expect(canvas.locator('.inspector .hint')).toHaveText(
+      'start or pick a run to see what it recorded',
+    );
+
+    // Which leaves the face that is about what the
+    // block should do — including how hard it tries,
+    // the three numbers together, because a step
+    // that runs once on a timeout is a different
+    // step.
+    for (const field of [
+      'retryMaxAttempts',
+      'retryIntervalSeconds',
+      'retryBackoffRate',
+    ]) {
+      await expect(canvas.locator(`[data-field="${field}"]`)).toBeVisible();
+    }
+  });
+
+  /**
+   * The way out of the column and into the code.
+   *
+   * Last in the file on purpose: the handler opens
+   * in the group the canvas is in, so it takes the
+   * canvas' place — and a test that ran after this
+   * one would be reading a frame that is no longer
+   * on screen.
+   *
+   * The tab is asserted absent first. Without that
+   * this would pass on a file some earlier step had
+   * already opened, which is the one way a button
+   * that does nothing looks like a button that
+   * works.
+   */
+  test('the way to the code opens the function in a tab', async () => {
+    const tab = vscode.editorTab('answerIt.ts');
+
+    await expect(tab).toHaveCount(0);
+
+    await canvas.locator('.react-flow__node[data-id="answer_it"]').click();
+    await canvas
+      .locator(
+        '[data-field="handler"][data-control="picker"] [data-open-function]',
+      )
+      .click();
+
+    await expect(tab).toBeVisible();
+  });
 });
