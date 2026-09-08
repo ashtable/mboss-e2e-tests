@@ -107,6 +107,36 @@ export const EXTENSION_POSTGRES_PORT = 5435;
 export const EXTENSION_APP_PORT = 3300;
 
 /**
+ * The inbox the one journey whose workflow sends
+ * mail points its project at.
+ *
+ * A second sink rather than the durability spec's,
+ * because the two suites are entitled to run at the
+ * same time and a shared port would make one of
+ * them fail as the other's fixture refusing to
+ * bind.
+ */
+export const EXTENSION_MAILSINK_PORT = 8126;
+
+/**
+ * Where that sink is, as the app has to name it.
+ *
+ * This app runs inside a container while the sink
+ * is a host process, so the address is the one the
+ * daemon publishes the host under rather than
+ * loopback — which would be the container itself.
+ * That name is Docker Desktop's, and this tier only
+ * ever runs on a machine with a desktop daemon.
+ */
+export const EXTENSION_MAIL_BASE_URL = onDockerHost(EXTENSION_MAILSINK_PORT);
+
+/** A host process, as something inside a container
+ *  reaches it. */
+function onDockerHost(port: number): string {
+  return `http://host.docker.internal:${port}`;
+}
+
+/**
  * The moved database, as the project's own `.env`
  * has to name it.
  *

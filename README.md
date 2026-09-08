@@ -419,13 +419,13 @@ would read true of a command that did nothing at all.
 
 ## The stack, from inside the editor
 
-`tests/extension-stack/` is one spec and its own Playwright project. It is the
-only place the whole product runs at once: a project is scaffolded, its one
-step's code is generated from the document, the Runs panel brings the project's
-own containers up with `docker compose up --build --wait`, a run is fired at
-the app inside them by hand, and the run is followed to `done` through the
-ledger Postgres wrote. Then **Open flight recorder** opens the see tab on that
-run's id. There is no terminal anywhere in it.
+`tests/extension-stack/` is its own Playwright project, and every file in it is
+a journey. They are the only place the whole product runs at once: a project is
+scaffolded, its code is generated from the document, the Runs panel brings the
+project's own containers up with `docker compose up --build --wait`, a run is
+fired at the app inside them by hand, and the run is followed to `done` through
+the ledger Postgres wrote. Then **Open flight recorder** opens the see tab on
+that run's id. There is no terminal anywhere in it.
 
 It is opt-in — `npm run e2e:stack`, never `e2e:ext`, and not in `ci.yml`. It
 wants a Docker daemon, an image build and minutes, and every other extension
@@ -447,6 +447,26 @@ with the dev stack up, which is the machine the rewrite was written for.
 `two-blocks` is the fixture, not `crash-fixture`: the latter is triggered by an
 event, its second block sends mail that fails without a sink and its third
 parks on a form, so the furthest a run of it reaches is `waiting`.
+
+`queue-journey.spec.ts` is the one that follows a block which does not run
+inside the run that drew it. It takes the gallery's queued pattern, empties the
+key its items are deduplicated on, and fans twelve pages out over a real queue
+— the pattern keys items on the document, so every page of one upload carries
+the same key and twelve of them would otherwise join one run, which is a fine
+thing for a pattern to teach and nothing to count.
+
+That journey wants an inbox as well, on `8126`. Its last block mails whoever
+uploaded the document, and a send with nowhere to go ends the run `failed` for
+a reason that has nothing to do with queues — so the project is pointed at a
+second mail sink, run here beside the durability spec's. The app is in a
+container while the sink is a process on this machine, so the address it is
+given is `host.docker.internal`, which is Docker Desktop's name for the host
+and is why this stays a tier nobody runs in CI.
+
+Its tests are one journey rather than nine cases, so the file is `serial`: a
+worker that has failed a test is thrown away and the next test starts a new
+one, which here would mean a second scaffold, a second install and a second
+stack, all to run a step whose subject never happened.
 
 ## Scaffolding, across a process boundary
 
