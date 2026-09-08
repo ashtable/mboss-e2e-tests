@@ -179,6 +179,10 @@ export type DrivenVsCode = {
    *  tab strip names it. */
   editorTab(name: string): Locator;
 
+  /** Every sentence PROBLEMS is showing, with the
+   *  panel opened first if it was not already. */
+  problems(): Promise<Locator>;
+
   /** Answers an open dialog with a directory. */
   answerFolderPick(path: string): Promise<void>;
 
@@ -302,6 +306,7 @@ export async function driveVsCode(
     save: () => runCommand(page, 'File: Save'),
     openFile: (relative) => openFile(page, relative),
     editorTab: (name) => editorTab(page, name),
+    problems: () => problems(page),
     answerFolderPick: (path) => answerFolderPick(page, path),
     answerInput: (text) => answerInput(page, text),
     acceptInput: () => acceptInput(page),
@@ -712,6 +717,39 @@ async function openFile(page: Page, relative: string): Promise<void> {
  */
 function editorTab(page: Page, name: string): Locator {
   return page.locator(`.tabs-container .tab[data-resource-name="${name}"]`);
+}
+
+/**
+ * The palette entry that opens PROBLEMS.
+ *
+ * Focus and not the toggle beside it, so that
+ * asking twice leaves the panel open rather than
+ * putting it away again.
+ */
+const PROBLEMS_VIEW = 'View: Focus Problems (Errors, Warnings, Infos)';
+
+/**
+ * What the editor is saying about the project,
+ * sentence by sentence.
+ *
+ * The panel is where a finding that belongs to no
+ * one field ends up — the rules report against a
+ * block, and only some of them have a box holding
+ * half their remedy for the Inspector to draw them
+ * on. So this is the surface that answers "is the
+ * editor saying it at all".
+ *
+ * The sentences are handed back rather than the
+ * rows around them, because a sentence a rule
+ * writes already names the block it is about and a
+ * row adds only the file, the source and the line —
+ * three things the spec would then be asserting
+ * about the panel instead of about the finding.
+ */
+async function problems(page: Page): Promise<Locator> {
+  await runCommand(page, PROBLEMS_VIEW);
+
+  return page.locator('.markers-panel .marker-message');
 }
 
 /**
