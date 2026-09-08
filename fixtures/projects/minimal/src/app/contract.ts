@@ -43,6 +43,42 @@ export type ScheduleEntry = {
   automaticBackfill: boolean;
 };
 
+/**
+ * A queue's rate limit, on the queue as a whole or
+ * within each partition of it.
+ *
+ * Local to this file on purpose: an exported type
+ * may name a local one, and nothing outside needs
+ * to say this shape's name.
+ */
+type QueueRateLimit = {
+  limitPerPeriod: number;
+  periodSec: number;
+};
+
+/**
+ * One queue, as the boot registers it.
+ *
+ * The options are the SDK's registration
+ * parameters, minus the three it has deprecated
+ * and the two the deployment owns. Every one of
+ * them is optional: a queue with no limits at all
+ * is a legal queue, and it is the ordinary one.
+ */
+export type QueueEntry = {
+  name: string;
+  options: {
+    globalConcurrency?: number;
+    workerConcurrency?: number;
+    rateLimit?: QueueRateLimit;
+    partitionConcurrency?: number;
+    partitionWorkerConcurrency?: number;
+    partitionRateLimit?: QueueRateLimit;
+    minPollingIntervalMs?: number;
+    onConflict?: 'update_if_latest_version' | 'always_update' | 'never_update';
+  };
+};
+
 export type EmailFormField = {
   id: string;
   label: string;
@@ -99,6 +135,21 @@ export type WaitDescriptor = {
    */
   downstream: readonly string[];
 };
+
+/**
+ * What the approval page sends into the run when
+ * somebody answers it.
+ *
+ * The one message the runtime composes for a
+ * workflow rather than passing along: a form's
+ * answers are the shape that form's author
+ * declared, but an approval asks one question and
+ * this is the answer to it. The compiler writes
+ * the receive against this type, so the two ends
+ * of that message are one declaration rather than
+ * a shape spelled the same way twice.
+ */
+export type ApprovalReply = { approved: boolean };
 
 export type EventWait = {
   nodeId: string;
