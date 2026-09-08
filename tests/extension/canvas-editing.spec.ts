@@ -475,7 +475,15 @@ test.describe('editing a workflow on the canvas', () => {
    * it is the reason the box is still a box.
    */
   test('and a queue says which of two remedies a box holds', async () => {
-    await canvas.locator(`.react-flow__node[data-id="${QUEUE}"]`).click();
+    // This suite carries one editor through both queue cases. The first leaves
+    // this block selected, so wait for that state and its Inspector instead of
+    // asking React Flow's pane to resolve an unrelated second pointer gesture.
+    await expect(
+      canvas.locator(`.react-flow__node[data-id="${QUEUE}"]`),
+    ).toHaveClass(/\bselected\b/);
+    await expect(
+      canvas.locator('[data-field="partitioning"] select'),
+    ).toBeVisible();
 
     // Back to a queue nothing is partitioned by,
     // which takes the partition key with it.
