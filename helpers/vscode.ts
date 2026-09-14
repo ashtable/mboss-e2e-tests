@@ -95,9 +95,36 @@ export const VSCODE_VERSION = readFileSync(
 /** Where the download lands, and what CI caches. */
 export const VSCODE_CACHE = join(HERE, '..', '.vscode-test');
 
-/** The package the specs install and drive. */
-export const E2E_VSIX =
-  process.env.E2E_VSIX ?? join(EXTENSION_REPO, 'mboss-vscode-0.0.0.vsix');
+/**
+ * The package the specs install and drive.
+ *
+ * `vsce package` names its output after the
+ * manifest's name and version, and the extension
+ * moves that version with every branch, so the name
+ * is read off the nested manifest rather than
+ * spelled here. A spelled name outlives the version
+ * it named: CI then fails every spec on a missing
+ * file, and a local run installs whatever stale
+ * package still sits beside the checkout.
+ *
+ * Read when asked, never when this module loads.
+ * The hermetic job imports this file through global
+ * setup with no submodules checked out, so there is
+ * no manifest to read there.
+ */
+export function e2eVsix(repo: string = EXTENSION_REPO): string {
+  const override = process.env.E2E_VSIX;
+
+  if (override !== undefined) {
+    return override;
+  }
+
+  const manifest = JSON.parse(
+    readFileSync(join(repo, 'package.json'), 'utf8'),
+  ) as { name: string; version: string };
+
+  return join(repo, `${manifest.name}-${manifest.version}.vsix`);
+}
 
 /** What builds it, named in the failure that wants
  *  it. */
@@ -118,7 +145,7 @@ export const VSCODE_BUILD_COMMAND = 'npm run vscode:build';
  * of here.
  */
 export async function assertExtensionBuilt(): Promise<void> {
-  for (const path of [E2E_VSIX, join(SHIPPED, 'mcp', 'server.js')]) {
+  for (const path of [e2eVsix(), join(SHIPPED, 'mcp', 'server.js')]) {
     try {
       await access(path);
     } catch (cause) {
@@ -519,7 +546,7 @@ async function installExtension(
       `--user-data-dir=${userData}`,
       `--extensions-dir=${extensions}`,
       '--install-extension',
-      E2E_VSIX,
+      e2eVsix(),
     ],
     { timeout: LAUNCH_MS, maxBuffer: 8 * 1024 * 1024 },
   );
