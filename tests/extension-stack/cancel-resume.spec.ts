@@ -5,6 +5,13 @@ import { expect, test, type FrameLocator } from '@playwright/test';
 
 import { composeDown, installDependencies } from '../../helpers/app.js';
 import {
+  listedRuns,
+  openRunTab,
+  runRow,
+  startStack,
+  startedRun,
+} from '../../helpers/runs.js';
+import {
   discardExtensionProject,
   driveVsCode,
   extensionProject,
@@ -92,17 +99,10 @@ test.describe('a run cancelled and resumed', () => {
     }
   });
 
-  test('Start Local Stack brings the project up', async () => {
+  test('Start app brings the project up', async () => {
     test.setTimeout(900_000);
 
-    await runs.locator('[data-stack-toggle]').click();
-
-    for (const service of ['postgres', 'app']) {
-      await expect(
-        runs.locator(`[data-zone="stack"] [data-service="${service}"]`),
-        `${service} should be running`,
-      ).toHaveAttribute('data-state', 'running', { timeout: 900_000 });
-    }
+    await startStack(runs, ['postgres', 'app'], { timeout: 900_000 });
   });
 
   /**
@@ -111,32 +111,35 @@ test.describe('a run cancelled and resumed', () => {
    * Cancel being on offer is the assertion, not the
    * word beside the run: both of the words a run in
    * flight can carry mean the same thing to somebody
-   * with their hand on this button.
+   * with their hand on this button. The run's row
+   * is the one the panel marked and opened out when
+   * it started it, so its controls are already on
+   * screen.
    */
   test(`runs ${WORKFLOW} and catches it in flight`, async () => {
     test.setTimeout(600_000);
 
-    const picker = runs.locator('[data-workflow-picker]');
+    const start = runs.locator('[data-run-workflow]');
 
-    await expect(picker.locator(`option[value="${WORKFLOW}"]`)).toHaveCount(1);
-    await picker.selectOption(WORKFLOW);
+    // One saved workflow, so nothing to pick.
+    await expect(start).toBeVisible();
+    await expect(runs.locator('[data-workflow-picker]')).toHaveCount(0);
 
     await runs
       .locator('[data-input]')
       .fill(`{ "question": ${JSON.stringify(QUESTION)} }`);
-    await runs.locator('[data-run-workflow]').click();
 
-    const live = runs.locator('[data-zone="running-now"]');
+    const before = await listedRuns(runs);
 
-    await expect(live.locator('[data-cancel-run]')).toBeVisible();
-    await expect(live.locator('[data-resume-run]')).toHaveCount(0);
+    await start.click();
 
-    expect(
-      await live.locator('.run-line').getAttribute('data-outcome'),
-    ).toMatch(/^(running|waiting)$/);
+    runId = await startedRun(runs, before);
 
-    runId = (await live.locator('.run-id').innerText()).trim();
-    expect(runId, 'the panel drew a run with no id').not.toBe('');
+    const row = runRow(runs, runId);
+
+    await expect(row.locator('[data-cancel-run]')).toBeVisible();
+    await expect(row.locator('[data-resume-run]')).toHaveCount(0);
+    await expect(row).toHaveAttribute('data-outcome', /^(running|waiting)$/);
   });
 
   /**
@@ -145,72 +148,77 @@ test.describe('a run cancelled and resumed', () => {
    *
    * Cancelling is not an interrupt — it writes a
    * status the run reads at its next durable point —
-   * so the row settling to `cancelled` is the only
-   * witness that anything happened.
+   * so the row settling is the only witness that
+   * anything happened. It settles idle rather than
+   * failed: a cancelled run is one somebody asked
+   * for, and is not the news a run that threw is.
    */
   test('Cancel run stops it', async () => {
-    const live = runs.locator('[data-zone="running-now"]');
+    const row = runRow(runs, runId);
 
-    await live.locator('[data-cancel-run]').click();
+    await row.locator('[data-cancel-run]').click();
 
-    await expect(live.locator('.run-line')).toHaveAttribute(
-      'data-outcome',
-      'cancelled',
-      { timeout: 120_000 },
-    );
+    await expect(row).toHaveAttribute('data-outcome', 'idle', {
+      timeout: 120_000,
+    });
 
-    await expect(live.locator('[data-resume-run]')).toBeVisible();
-    await expect(live.locator('[data-cancel-run]')).toHaveCount(0);
+    await expect(row.locator('[data-resume-run]')).toBeVisible();
+    await expect(row.locator('[data-cancel-run]')).toHaveCount(0);
   });
 
   /**
    * Picked back up, and stoppable again.
    *
-   * `running` is not asserted. The wake time was
-   * written down before the wait began, so a resumed
-   * run goes straight back to sitting out the
-   * remainder of the same minute and reads as
+   * `running` alone is not asserted. The wake time
+   * was written down before the wait began, so a
+   * resumed run goes straight back to sitting out
+   * the remainder of the same minute and reads as
    * waiting again — which is the point of a durable
-   * wait, not a failure to resume. What says it is
+   * wait, not a failure to resume. Nor is the word
+   * the row first says: a resumed run sits on the
+   * queue until a worker claims it, and the row
+   * says so until the next read. What says it is
    * back in flight is that it can be stopped again
    * and no longer offers to be resumed.
    */
   test('Resume puts it back in flight', async () => {
-    const live = runs.locator('[data-zone="running-now"]');
+    const row = runRow(runs, runId);
 
-    await live.locator('[data-resume-run]').click();
+    await row.locator('[data-resume-run]').click();
 
-    await expect(live.locator('[data-cancel-run]')).toBeVisible({
+    await expect(row.locator('[data-cancel-run]')).toBeVisible({
       timeout: 120_000,
     });
-    await expect(live.locator('[data-resume-run]')).toHaveCount(0);
+    await expect(row.locator('[data-resume-run]')).toHaveCount(0);
 
-    expect(
-      await live.locator('.run-line').getAttribute('data-outcome'),
-    ).toMatch(/^(running|waiting)$/);
+    await expect(row).toHaveAttribute('data-outcome', /^(running|waiting)$/, {
+      timeout: 120_000,
+    });
   });
 
   /**
    * The far side of the wait.
    *
-   * Read on the run's own page rather than in the
-   * panel, and that is the honest place for it. A
+   * Read on the run's own tab rather than in the
+   * list, and that is the honest place for it. A
    * watch lets go of a parked run rather than
    * reading somebody's database every half second
-   * for a day, so the zone the run was in keeps
-   * saying `waiting · refresh to check` — it is a
-   * memory of the last thing anybody read, not a
-   * live column. The page about the run is what
-   * asking again reads, so it is what is asked.
+   * for a day, so the row keeps saying what was
+   * last read — a memory of the last thing anybody
+   * read, not a live column. The tab's refresh is
+   * what asking again is, so it is what is asked.
    *
    * Both words are taken: the ledger's own status
-   * for the run, and the colour the block that ran
-   * after the wait is drawn in.
+   * for the run, as the Inspector shows the row
+   * DBOS keeps about a run in front with nothing of
+   * it picked; and the colour the blocks either
+   * side of the wait are drawn in, the wait itself
+   * toned by the row its sleep wrote.
    */
   test('the wait runs out and the run finishes', async () => {
     test.setTimeout(600_000);
 
-    await runs.locator(`[data-session-row="${runId}"] [data-open-run]`).click();
+    await openRunTab(runs, runId);
     see = await vscode.webview('see');
 
     await expect(see.locator(`.see[data-run="${runId}"]`)).toBeVisible();
@@ -218,17 +226,20 @@ test.describe('a run cancelled and resumed', () => {
     await expect(async () => {
       await see.locator('[data-see-refresh]').click();
 
-      await expect(see.locator('[data-rail="status"] dd')).toHaveText(
-        'SUCCESS',
-        { timeout: 5_000 },
-      );
+      const inspector = await vscode.inspector();
+
+      await expect(
+        inspector.locator('[data-ledger] [data-rail="status"] .value'),
+      ).toHaveText('SUCCESS', { timeout: 5_000 });
     }).toPass({ timeout: AFTER_THE_TIMER });
 
     await see.locator('[data-see-tab="graph"]').click();
 
-    await expect(see.locator('[data-run-node="answer_it"]')).toHaveAttribute(
-      'data-state',
-      'done',
-    );
+    for (const block of ['let_it_wait', 'answer_it']) {
+      await expect(
+        see.locator(`[data-run-node="${block}"]`),
+        `${block} should be drawn finished`,
+      ).toHaveAttribute('data-state', 'done');
+    }
   });
 });

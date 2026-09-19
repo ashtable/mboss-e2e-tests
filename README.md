@@ -451,18 +451,29 @@ would read true of a command that did nothing at all.
 
 `tests/extension-stack/` is its own Playwright project, and every file in it is
 a journey. They are the only place the whole product runs at once: a project is
-scaffolded, its code is generated from the document, the Runs panel brings the
-project's own containers up with `docker compose up --build --wait`, a run is
-fired at the app inside them by hand, and the run is followed to `done` through
-the ledger Postgres wrote. Then **Open flight recorder** opens the see tab on
-that run's id. There is no terminal anywhere in it.
+scaffolded, its code is generated from the document, the Runs view's **Start
+app** brings the project's own containers up with
+`docker compose up --build --wait`, a run is fired at the app inside them with
+**Run**, and the run is followed to `done` through the ledger Postgres wrote.
+Then the run's row opens its tab on that run's id. There is no terminal anywhere
+in it.
 
 It is opt-in — `npm run e2e:stack`, never `e2e:ext`, and not in `ci.yml`. It
 wants a Docker daemon, an image build and minutes, and every other extension
 spec is entitled to run on a machine with none of them. What it can be refused
 for is checked in global setup and said in one sentence, because a stack that
-cannot come up otherwise fails deep inside the journey as a Start Local Stack
-that did nothing — which is exactly the regression the journey exists to catch.
+cannot come up otherwise fails deep inside the journey as a Start app that did
+nothing — which is exactly the regression the journey exists to catch.
+
+**A run is its row.** The Runs view is one list of the project's ledger, and a
+run this window started has no card of its own: it is the list's top row,
+marked and opened out. So a journey reads how a run went, stops it, resumes it,
+opens its tab and hands it to an agent through that row, found by the id it
+carries rather than by where it sits. `helpers/runs.ts` holds those gestures,
+and one of them is how a journey learns the id at all: the run a start put on
+the list is the row that came up marked with an id the list had not shown
+before. The list sits in the side bar, so a journey finds its page again after
+any palette command, the way it does the Inspector's.
 
 **Every extension project is moved off the ports the scaffold emits.** The
 compose file a scaffold writes publishes Postgres on 5432 and the app on 3000,

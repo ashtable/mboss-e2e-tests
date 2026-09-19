@@ -6,6 +6,13 @@ import { expect, test, type FrameLocator } from '@playwright/test';
 
 import { composeDown, installDependencies } from '../../helpers/app.js';
 import {
+  listedRuns,
+  pickRun,
+  runRow,
+  startStack,
+  startedRun,
+} from '../../helpers/runs.js';
+import {
   promptBlocksSent,
   promptsSent,
   transcriptLines,
@@ -104,17 +111,10 @@ test.describe('a failed run, handed to an agent', () => {
     }
   });
 
-  test('Start Local Stack brings the project up', async () => {
+  test('Start app brings the project up', async () => {
     test.setTimeout(900_000);
 
-    await runs.locator('[data-stack-toggle]').click();
-
-    for (const service of ['postgres', 'app']) {
-      await expect(
-        runs.locator(`[data-zone="stack"] [data-service="${service}"]`),
-        `${service} should be running`,
-      ).toHaveAttribute('data-state', 'running', { timeout: 900_000 });
-    }
+    await startStack(runs, ['postgres', 'app'], { timeout: 900_000 });
   });
 
   /**
@@ -126,9 +126,11 @@ test.describe('a failed run, handed to an agent', () => {
    * makes it different from a row the agent wrote is
    * that mBoss did the reading rather than asking
    * for permission to, and `applied` is how that is
-   * said.
+   * said. It names the run by its short id, the way
+   * every row on screen does; the words the agent
+   * is sent name it whole.
    */
-  test('Ask agent why sends the run, read and attached', async () => {
+  test('Ask agent sends the run, read and attached', async () => {
     test.setTimeout(600_000);
 
     const transcript = join(scratch, 'embedded.ndjson');
@@ -137,9 +139,12 @@ test.describe('a failed run, handed to an agent', () => {
     await vscode.runCommand('mBoss: Open Agent Sidebar');
     sidebar = await vscode.webview('sidebar');
 
-    await runs
-      .locator(`[data-session-row="${runId}"] [data-ask-agent]`)
-      .click();
+    // The command took the side bar off screen on
+    // its way, so the list is a new page now.
+    runs = await vscode.webview('runs');
+
+    await pickRun(runs, runId);
+    await runRow(runs, runId).locator('[data-ask-agent]').click();
 
     const row = sidebar.locator(`[data-tool-call="evidence:${runId}"]`);
 
@@ -147,7 +152,7 @@ test.describe('a failed run, handed to an agent', () => {
     await expect(row).toHaveAttribute('data-status', 'applied');
     await expect(row.locator('.tool-verb')).toHaveText('Read');
     await expect(row.locator('.tool-target')).toHaveText(
-      `run ${runId} · mBoss run evidence`,
+      `run #${runId.slice(0, 4)} · mBoss run evidence`,
     );
     await expect(row.locator('[data-tool-action="openRun"]')).toHaveText(
       'Open run',
@@ -200,8 +205,8 @@ test.describe('a failed run, handed to an agent', () => {
    * outlives the profile that made it, so a window
    * opened where the one before it said yes never
    * asks again. A window that did arrive restricted
-   * would fail at the picker below, which a
-   * restricted panel does not draw.
+   * would fail at Run below, which a restricted
+   * panel does not draw.
    */
   test('an agent that takes only words gets the record fenced', async () => {
     test.setTimeout(600_000);
@@ -223,14 +228,17 @@ test.describe('a failed run, handed to an agent', () => {
 
     await vscode.runCommand('mBoss: Open Agent Sidebar');
     sidebar = await vscode.webview('sidebar');
+    runs = await vscode.webview('runs');
 
-    await runs
-      .locator(`[data-session-row="${runId}"] [data-ask-agent]`)
-      .click();
+    await pickRun(runs, runId);
+    await runRow(runs, runId).locator('[data-ask-agent]').click();
 
-    await expect(
-      sidebar.locator(`[data-tool-call="evidence:${runId}"]`),
-    ).toHaveAttribute('data-status', 'applied');
+    const row = sidebar.locator(`[data-tool-call="evidence:${runId}"]`);
+
+    await expect(row).toHaveAttribute('data-status', 'applied');
+    await expect(row.locator('.tool-target')).toHaveText(
+      `run #${runId.slice(0, 4)} · mBoss run evidence`,
+    );
 
     await expect(async () => {
       const [blocks = []] = promptBlocksSent(await transcriptLines(transcript));
@@ -256,27 +264,26 @@ test.describe('a failed run, handed to an agent', () => {
  * it, which is why it is a function here rather than
  * a test they share: the second window has no memory
  * of the first one's run and has to make its own.
+ * The project saved one workflow, so there is
+ * nothing to pick before Run.
  */
 async function failARun(runs: FrameLocator): Promise<string> {
-  const picker = runs.locator('[data-workflow-picker]');
+  const start = runs.locator('[data-run-workflow]');
 
-  await expect(picker.locator('option[value="failing_step"]')).toHaveCount(1);
-  await picker.selectOption('failing_step');
+  await expect(start).toBeVisible();
+  await expect(runs.locator('[data-workflow-picker]')).toHaveCount(0);
 
   await runs.locator('[data-input]').fill('{ "fail": true }');
-  await runs.locator('[data-run-workflow]').click();
 
-  const live = runs.locator('[data-zone="running-now"]');
+  const before = await listedRuns(runs);
 
-  await expect(live.locator('.run-line')).toHaveAttribute(
-    'data-outcome',
-    'failed',
-    { timeout: 300_000 },
-  );
+  await start.click();
 
-  const runId = (await live.locator('.run-id').innerText()).trim();
+  const runId = await startedRun(runs, before);
 
-  expect(runId, 'the panel drew a run with no id').not.toBe('');
+  await expect(runRow(runs, runId)).toHaveAttribute('data-outcome', 'failed', {
+    timeout: 300_000,
+  });
 
   return runId;
 }

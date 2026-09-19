@@ -5,6 +5,13 @@ import { expect, test, type FrameLocator } from '@playwright/test';
 
 import { composeDown, installDependencies } from '../../helpers/app.js';
 import {
+  listedRuns,
+  openRunTab,
+  runRow,
+  startStack,
+  startedRun,
+} from '../../helpers/runs.js';
+import {
   discardExtensionProject,
   driveVsCode,
   extensionProject,
@@ -32,9 +39,8 @@ import {
  * app registers the workflow the document named,
  * that the ingress accepts the panel's request
  * under the id the panel minted, and that the
- * flight recorder opens on the run that just
- * finished rather than on whatever was selected
- * last.
+ * run's tab opens on the run that just finished
+ * rather than on whatever was picked last.
  *
  * It is opt-in — `npm run e2e:stack`, its own
  * Playwright project, and not in CI. It wants a
@@ -64,9 +70,9 @@ test.describe('the Runs panel, over a real stack', () => {
   let see: FrameLocator;
   let canvas: FrameLocator;
 
-  /** Minted by the panel, read off the run it is
-   *  following, and the thread through the last
-   *  three tests. */
+  /** Minted by the panel, read off the row it
+   *  marked, and the thread through every test
+   *  after the start. */
   let runId = '';
 
   test.beforeAll(async () => {
@@ -139,23 +145,22 @@ test.describe('the Runs panel, over a real stack', () => {
    * went green — which for the app means it served
    * `/healthz` from inside its own container.
    */
-  test('Start Local Stack brings the project up', async () => {
+  test('Start app brings the project up', async () => {
     test.setTimeout(900_000);
 
-    await runs.locator('[data-stack-toggle]').click();
-
-    for (const service of ['postgres', 'app']) {
-      await expect(
-        runs.locator(`[data-zone="stack"] [data-service="${service}"]`),
-        `${service} should be running`,
-      ).toHaveAttribute('data-state', 'running', { timeout: 900_000 });
-    }
+    await startStack(runs, ['postgres', 'app'], { timeout: 900_000 });
   });
 
   /**
    * A run started the way a person starts one:
-   * pick the workflow, type its input as JSON,
-   * press the button.
+   * type its input as JSON, press the button.
+   *
+   * There is nothing to pick first. The project
+   * saved one workflow, and a picker with one
+   * choice in it is a question with one answer, so
+   * the panel draws none — which the name on the
+   * run's row then confirms was the workflow Run
+   * meant.
    *
    * `done` is read off `dbos.workflow_status`
    * through the panel's own watch, which polls the
@@ -169,58 +174,65 @@ test.describe('the Runs panel, over a real stack', () => {
   test(`runs ${WORKFLOW} and the run reaches done`, async () => {
     test.setTimeout(600_000);
 
-    const picker = runs.locator('[data-workflow-picker]');
+    const start = runs.locator('[data-run-workflow]');
 
-    await expect(picker.locator(`option[value="${WORKFLOW}"]`)).toHaveCount(1);
-    await picker.selectOption(WORKFLOW);
+    await expect(start).toBeVisible();
+    await expect(runs.locator('[data-workflow-picker]')).toHaveCount(0);
 
     await runs
       .locator('[data-input]')
       .fill(`{ "question": ${JSON.stringify(QUESTION)} }`);
-    await runs.locator('[data-run-workflow]').click();
 
-    const live = runs.locator('[data-zone="running-now"]');
+    const before = await listedRuns(runs);
 
-    await expect(live.locator('.run-line')).toHaveAttribute(
-      'data-outcome',
-      'done',
-      { timeout: 300_000 },
-    );
-    await expect(live.locator('.run-name')).toHaveText(WORKFLOW);
+    await start.click();
 
-    runId = (await live.locator('.run-id').innerText()).trim();
-    expect(runId, 'the panel drew a run with no id').not.toBe('');
+    runId = await startedRun(runs, before);
+
+    const row = runRow(runs, runId);
+
+    await expect(row).toHaveAttribute('data-outcome', 'done', {
+      timeout: 300_000,
+    });
+    await expect(row.locator('.run-name')).toHaveText(WORKFLOW);
   });
 
   /**
    * What this window set going, as against what the
    * database happens to hold.
    *
-   * The session zone is the panel's own memory of
-   * the runs it started, and it is the only place a
-   * run started here is told apart from one an
-   * agent or a colleague started. So it is asserted
-   * on the id the run above was given rather than
-   * on the zone having any rows at all.
+   * A run started here has no card of its own. It
+   * is the top row of the project's ledger, marked
+   * and opened out, which is the row somebody would
+   * have picked to look at it — so it is asserted on
+   * the id the run above was given, and on being the
+   * row in front, rather than on the list having any
+   * rows at all.
    */
-  test('the session zone lists the run this window started', async () => {
-    await expect(
-      runs.locator(`[data-zone="session"] [data-session-row="${runId}"]`),
-    ).toHaveAttribute('data-outcome', 'done');
+  test('the list leads with the run this window started', async () => {
+    const row = runRow(runs, runId);
+
+    expect((await listedRuns(runs))[0]).toBe(runId);
+    await expect(row.locator(':scope > button.run-head')).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    await expect(row.locator('[data-open-run]')).toBeVisible();
+    await expect(row).toHaveAttribute('data-outcome', 'done');
   });
 
   /**
-   * The flight recorder, opened from the row.
+   * The run's own tab, opened from its row.
    *
-   * The see webview is an editor tab rather than a
-   * view in the container, and it draws the run the
-   * store has selected — so an id in its markup is
-   * the proof that pressing this row's button
-   * selected this row's run, rather than revealing
-   * a panel that was already showing something.
+   * The tab is an editor rather than a view in the
+   * container, and it draws the run the store has
+   * open — so an id in its markup is the proof that
+   * pressing this row's button opened this row's
+   * run, rather than revealing a tab that was
+   * already showing something.
    */
-  test('Open flight recorder shows that run', async () => {
-    await runs.locator(`[data-session-row="${runId}"] [data-open-run]`).click();
+  test("the row opens that run's tab", async () => {
+    await openRunTab(runs, runId);
 
     see = await vscode.webview('see');
 
@@ -233,16 +245,16 @@ test.describe('the Runs panel, over a real stack', () => {
    *
    * Both are drawn from the rows Postgres holds and
    * neither is drawn from the other, so they are
-   * asserted apart. The picture's claim is that a
-   * block the ledger has a finished row for is
-   * coloured as finished and one it has nothing for
-   * is not; the list's is that the rows are gathered
-   * under the block that wrote them rather than laid
-   * out flat.
+   * asserted apart. The picture's claim is that
+   * every block the run went through is drawn as
+   * finished — the trigger included, which records
+   * nothing and is done by the fact the run started.
+   * The list's is that each row is laid under the
+   * block that wrote it rather than out flat.
    *
-   * One group and not two, because a trigger records
-   * nothing: it is how the run started, not
-   * something the run did.
+   * One block and not two in the list, because a
+   * trigger records nothing: it is how the run
+   * started, not something the run did.
    */
   test('the run page draws the blocks and the rows they wrote', async () => {
     await see.locator('[data-see-tab="graph"]').click();
@@ -253,20 +265,27 @@ test.describe('the Runs panel, over a real stack', () => {
     );
 
     await expect(see.locator('[data-run-node]')).toHaveCount(2);
-    await expect(see.locator('[data-run-node="answer_it"]')).toHaveAttribute(
-      'data-state',
-      'done',
-    );
-    await expect(
-      see.locator('[data-run-node="started_by_hand"]'),
-    ).not.toHaveAttribute('data-state', 'done');
+
+    for (const block of [BLOCK, 'started_by_hand']) {
+      await expect(
+        see.locator(`[data-run-node="${block}"]`),
+        `${block} should be drawn finished`,
+      ).toHaveAttribute('data-state', 'done');
+    }
 
     await see.locator('[data-see-tab="trace"]').click();
 
-    await expect(see.locator('[data-trace-group="answer_it"]')).toBeVisible();
-    await expect(
-      see.locator('[data-trace-group]:not([data-trace-group=""])'),
-    ).toHaveCount(1);
+    await expect(see.locator(`li[data-trace-group="${BLOCK}"]`)).toBeVisible();
+
+    const groups = await see
+      .locator('li[data-trace-group]')
+      .evaluateAll((rows) =>
+        rows.map((row) => row.getAttribute('data-trace-group') ?? ''),
+      );
+
+    expect(new Set(groups.filter((group) => group !== ''))).toEqual(
+      new Set([BLOCK]),
+    );
   });
 
   /**
@@ -281,6 +300,10 @@ test.describe('the Runs panel, over a real stack', () => {
    * to be yes.
    */
   test('Edit workflow opens the document beside the run', async () => {
+    // A way to the document drawn in the graph's
+    // own corner, so it is there on the Graph tab
+    // and nowhere on the Trace one.
+    await see.locator('[data-see-tab="graph"]').click();
     await see.locator('[data-edit-workflow]').click();
 
     canvas = await vscode.webview('canvas');
@@ -294,29 +317,51 @@ test.describe('the Runs panel, over a real stack', () => {
 
   /**
    * What the run recorded, on the block that
-   * recorded it, in the editor.
+   * recorded it, in the Inspector beside the
+   * editor.
    *
-   * The tab was refused with a hint while nothing
+   * The face was refused with a hint while nothing
    * had been run — a claim the plain editor suite
    * makes, having no stack to run anything on. This
-   * is the other half: with a run followed, the same
-   * tab opens and carries a figure that could only
-   * have come from the ledger.
+   * is the other half: with a run followed, the
+   * same face opens and carries figures that could
+   * only have come from the ledger.
    *
-   * The duration is read as a shape rather than a
-   * number. What it says is how long the step took
-   * on this machine, which is not a thing to assert;
-   * that it says a number at all is.
+   * The duration and the clock are read as shapes
+   * rather than numbers. What they say is how long
+   * the step took on this machine and when, which
+   * is not a thing to assert; that they say a
+   * number at all, and a time to the millisecond on
+   * a 24-hour clock, is. And what the step returned
+   * is shown as the step returned it, never in the
+   * envelope the SDK stores it in.
    */
   test('the block carries what the run recorded', async () => {
     await canvas.locator(`.react-flow__node[data-id="${BLOCK}"]`).click();
-    await canvas.locator('[data-inspector-tab="evidence"]').click();
 
-    const evidence = canvas.locator('[data-evidence="block"]');
+    const inspector = await vscode.inspector();
+    const header = inspector.locator('[data-inspector-header]');
 
-    await expect(evidence.locator('[data-run-state="done"]')).toBeVisible();
+    await expect(header.locator('[data-inspector-kind]')).toHaveText('step');
+
+    await inspector.locator('[data-inspector-tab="evidence"]').click();
+
+    await expect(header.locator('[data-run-state="done"]')).toBeVisible();
+
+    const evidence = inspector.locator('[data-evidence="block"]');
+
     await expect(
       evidence.locator('[data-evidence-field="duration"] .value'),
     ).toHaveText(/^\d+(\.\d+)? (ms|s)$/);
+
+    const moments = evidence.locator('[data-time="fine"]');
+
+    await expect(moments.first()).toBeVisible();
+
+    for (const moment of await moments.all()) {
+      await expect(moment).toHaveText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
+    }
+
+    await expect(evidence).not.toContainText('__dbos_serializer');
   });
 });
