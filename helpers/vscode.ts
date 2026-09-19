@@ -169,7 +169,8 @@ export async function assertExtensionBuilt(): Promise<void> {
  * would be matching on something localized, or on
  * markup a redesign owns.
  */
-export type WebviewName = 'canvas' | 'sidebar' | 'runs' | 'see' | 'gallery';
+export type WebviewName =
+  'canvas' | 'sidebar' | 'runs' | 'see' | 'inspector' | 'gallery';
 
 /** A running editor, driven. */
 export type DrivenVsCode = {
@@ -183,6 +184,18 @@ export type DrivenVsCode = {
   /** Whether it is on screen right now, asked once
    *  and answered either way. */
   showsWebview(name: WebviewName): Promise<boolean>;
+
+  /** The Inspector's content frame, found afresh
+   *  on every call and shown again first when it
+   *  is not on screen.
+   *
+   *  Every palette command parks focus on the
+   *  Explorer, which takes the side bar's views
+   *  off screen, and a view off screen loses its
+   *  page. A frame an earlier call handed back may
+   *  be gone by the next gesture, so the journeys
+   *  ask for this one wherever they read it. */
+  inspector(): Promise<FrameLocator>;
 
   /** Runs a command from the palette, by the title
    *  it shows there. */
@@ -329,6 +342,15 @@ export async function driveVsCode(
     webview: (name) => webviewFrame(page, name),
     showsWebview: async (name) =>
       (await showingWebview(page, name)) !== undefined,
+    inspector: async () => {
+      const shown = await showingWebview(page, 'inspector');
+
+      if (shown !== undefined) return shown;
+
+      await runCommand(page, INSPECTOR_VIEW);
+
+      return webviewFrame(page, 'inspector');
+    },
     runCommand: (title) => runCommand(page, title),
     save: () => runCommand(page, 'File: Save'),
     openFile: (relative) => openFile(page, relative),
@@ -683,6 +705,19 @@ async function showingWebview(
 
   return undefined;
 }
+
+/**
+ * The palette entry that brings the Inspector back.
+ *
+ * The editor gives every view a command that opens
+ * its container and focuses it, titled from the
+ * container's name and the view's, so the extension
+ * contributes nothing for it. Its own commands open
+ * the agent panel or the runs list; none opens the
+ * Inspector, which follows whatever canvas or run
+ * tab is in front rather than being asked for.
+ */
+const INSPECTOR_VIEW = 'mBoss: Focus on Inspector View';
 
 /**
  * A command, through the palette a person types

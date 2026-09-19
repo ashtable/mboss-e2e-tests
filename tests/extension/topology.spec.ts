@@ -21,12 +21,13 @@ import {
  * can be read off the extension's own manifest.
  *
  * `helpers/vscode.ts` walks that chain, and every
- * assertion about the canvas, the agent panel or
- * the runs list depends on it. So it is asserted
- * once, here, on its own: an editor that renames a
- * layer fails as one spec saying the frame chain
- * broke rather than as every spec in this directory
- * failing on a selector that resolved to nothing.
+ * assertion about the canvas, the agent panel, the
+ * runs list or the Inspector depends on it. So it
+ * is asserted once, here, on its own: an editor
+ * that renames a layer fails as one spec saying the
+ * frame chain broke rather than as every spec in
+ * this directory failing on a selector that
+ * resolved to nothing.
  */
 test.describe('the webview frame chain', () => {
   let project: string;
@@ -59,21 +60,44 @@ test.describe('the webview frame chain', () => {
   });
 
   /**
-   * Two of the four webviews are on screen at once
-   * here, in the same overlay layer, and telling
-   * them apart is the other half of what the helper
-   * does. A chain that resolved but always answered
-   * with the first frame would pass the assertion
-   * above and quietly make every later spec read
-   * the wrong panel.
+   * Three webviews share the side bar here, beside
+   * the canvas, all in the same overlay layer, and
+   * telling them apart is the other half of what
+   * the helper does. A chain that resolved but
+   * always answered with the first frame would pass
+   * the assertion above and quietly make every
+   * later spec read the wrong panel.
    */
   test('each webview is reached by its own name', async () => {
     await vscode.runCommand('mBoss: Open Agent Sidebar');
 
     const sidebar = await vscode.webview('sidebar');
     const runs = await vscode.webview('runs');
+    const inspector = await vscode.webview('inspector');
 
     await expect(sidebar.locator('.agent')).toBeVisible();
     await expect(runs.locator('.runs')).toBeVisible();
+    await expect(inspector.locator('[data-inspector]')).toBeVisible();
+  });
+
+  /**
+   * Every palette command parks focus on the
+   * Explorer first, which takes the side bar's
+   * views off screen, and a view off screen has no
+   * page. The Inspector is where the journeys read
+   * a block, so the helper that hands it over shows
+   * it again when a command has hidden it. Held
+   * here once, so an editor that renames the view's
+   * focus command fails as this spec rather than as
+   * every journey that reads a block.
+   */
+  test('the Inspector is shown again after a command hid it', async () => {
+    await vscode.runCommand('View: Show Explorer');
+
+    await expect.poll(() => vscode.showsWebview('inspector')).toBe(false);
+
+    const inspector = await vscode.inspector();
+
+    await expect(inspector.locator('[data-inspector]')).toBeVisible();
   });
 });
