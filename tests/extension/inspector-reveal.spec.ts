@@ -146,8 +146,18 @@ test.describe.serial('the Inspector shows itself', () => {
       // The window is made the one the machine is
       // typing into, as a person's is. An editor
       // started from a terminal is not, on every
-      // desktop.
-      await vscode.page.bringToFront();
+      // desktop, and one ask is not always taken, so
+      // it is asked until the window has the keyboard.
+      await expect
+        .poll(
+          async () => {
+            await vscode.page.bringToFront();
+
+            return vscode.page.evaluate(() => document.hasFocus());
+          },
+          { message: 'the window never took the keyboard', timeout: 10_000 },
+        )
+        .toBe(true);
       await vscode.openFile(FIXTURE);
       canvas = await vscode.webview('canvas');
 
@@ -171,7 +181,10 @@ test.describe.serial('the Inspector shows itself', () => {
     expect(runsPages.size).toBe(1);
 
     await expect(vscode.editorTab(FIXTURE)).toHaveClass(/\bactive\b/);
-    expect(keyboard.length).toBeGreaterThan(0);
+    expect(
+      keyboard.length,
+      'the window never had the keyboard while the Inspector showed',
+    ).toBeGreaterThan(0);
     expect(keyboard).not.toContain('side bar');
   });
 
