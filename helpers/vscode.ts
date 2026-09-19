@@ -195,12 +195,13 @@ export type DrivenVsCode = {
    *  on every call and shown again first when it
    *  is not on screen.
    *
-   *  Every palette command parks focus on the
-   *  Explorer, which takes the side bar's views
-   *  off screen, and a view off screen loses its
-   *  page. A frame an earlier call handed back may
-   *  be gone by the next gesture, so the journeys
-   *  ask for this one wherever they read it. */
+   *  Every command run through `runCommand()`
+   *  parks focus on the Explorer, which takes the
+   *  side bar's views off screen, and a view off
+   *  screen loses its page. A frame an earlier call
+   *  handed back may be gone by the next gesture,
+   *  so the journeys ask for this one wherever they
+   *  read it. */
   inspector(): Promise<FrameLocator>;
 
   /** Runs a command from the palette, by the title
@@ -891,10 +892,15 @@ const INSPECTOR_VIEW = 'mBoss: Focus on Inspector View';
  * into.
  *
  * Focus is parked on the Explorer first, and that
- * is load-bearing rather than tidy: a webview with
- * keyboard focus swallows the palette's keystroke,
- * so a command run after a spec has typed into the
- * agent panel would silently never open.
+ * is load-bearing rather than tidy: the agent
+ * panel's page keeps the palette's key, so a
+ * command run after a spec has typed into it
+ * would silently never open. The run tab's and the
+ * canvas' pages let the key through.
+ *
+ * The park takes the side bar's views off screen,
+ * so a spec about where the keyboard ends up uses
+ * `runCommandWithKeyboard()`, which parks nothing.
  */
 async function runCommand(page: Page, title: string): Promise<void> {
   await parkFocus(page);

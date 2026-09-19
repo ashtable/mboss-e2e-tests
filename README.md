@@ -363,15 +363,15 @@ own, so an editor that moves it fails as one spec rather than as all of them.
 
 **A frame is one page, held by name.** The frame the helper hands back is held
 to the page it found by the name its outer iframe carries, never by its place
-among the others. The side bar's views drop their pages whenever something
-takes them off screen — and every palette command does, because focus is parked
-on the Explorer first so that a webview cannot swallow the keystroke — so a
-frame found by position would slide on to a neighbour, or on to nothing, while
-the canvas it was found for is still in front. A side-bar view that was hidden
-comes back as a new page, so the Inspector is never kept across a command:
-`inspector()` finds its page afresh on every call, showing the view again first
-when a command has taken it off screen, and the journeys ask for it at every
-gesture that reads it.
+among the others. The side bar's views drop their pages whenever something takes
+them off screen — and every command `runCommand()` types does, because it parks
+focus on the Explorer first so that the agent panel's page cannot keep the
+keystroke — so a frame found by position would slide on to a neighbour, or on to
+nothing, while the canvas it was found for is still in front. A side-bar view
+that was hidden comes back as a new page, so the Inspector is never kept across
+a command: `inspector()` finds its page afresh on every call, showing the view
+again first when a command has taken it off screen, and the journeys ask for it
+at every gesture that reads it.
 
 **A fresh profile _and_ a fresh project directory, every run.** Both are
 minted under the system temp root, and both matter. A workspace-trust decision
@@ -426,15 +426,15 @@ one drawn after it.
 
 **`inspector-reveal.spec.ts`** — when the Inspector puts itself in front of
 somebody. The first canvas opened in a window opens the mBoss container with the
-Inspector in it, leaves the canvas' tab in front and the keyboard out of the side
-bar, and draws the Runs view beside it once rather than twice. After that, a
-block picked while the side bar shows the Explorer leaves the Explorer there. It
-has a window of its own, because the first half happens once in a window's
+Inspector in it, leaves the canvas' tab in front and the keyboard out of the
+side bar, and draws the Runs view beside it once rather than twice. After that,
+a block picked while the side bar shows the Explorer leaves the Explorer there.
+It has a window of its own, because the first half happens once in a window's
 life, and it never asks for the Inspector through `inspector()`: whether it is
 showing is the question. It asserts where the keyboard is not rather than where
 it is, because the editor itself does not always hand a webview the keyboard it
 asked for while the page is still loading: with no Inspector involved at all, a
-canvas opened from the file finder leaves the keyboard on the window.
+canvas opened from the file finder can leave the keyboard on the window.
 
 **`canvas-editing.spec.ts`** — building a workflow by hand, with a real
 pointer. A Step chip is carried out of the rail and let go over the pane, and
@@ -466,14 +466,14 @@ cannot come up otherwise fails deep inside the journey as a Start app that did
 nothing — which is exactly the regression the journey exists to catch.
 
 **A run is its row.** The Runs view is one list of the project's ledger, and a
-run this window started has no card of its own: it is the list's top row,
-marked and opened out. So a journey reads how a run went, stops it, resumes it,
-opens its tab and hands it to an agent through that row, found by the id it
-carries rather than by where it sits. `helpers/runs.ts` holds those gestures,
-and one of them is how a journey learns the id at all: the run a start put on
-the list is the row that came up marked with an id the list had not shown
-before. The list sits in the side bar, so a journey finds its page again after
-any palette command, the way it does the Inspector's.
+run this window started has no card of its own: it is the list's top row, marked
+and opened out. So a journey reads how a run went, stops it, resumes it, opens
+its tab and hands it to an agent through that row, found by the id it carries
+rather than by where it sits. `helpers/runs.ts` holds those gestures, and one of
+them is how a journey learns the id at all: the run a start put on the list is
+the row that came up marked with an id the list had not shown before. The list
+sits in the side bar, so a journey finds its page again after any
+`runCommand()`, the way it does the Inspector's.
 
 **Every extension project is moved off the ports the scaffold emits.** The
 compose file a scaffold writes publishes Postgres on 5432 and the app on 3000,

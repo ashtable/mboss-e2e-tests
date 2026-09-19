@@ -81,15 +81,16 @@ test.describe('the webview frame chain', () => {
   });
 
   /**
-   * Every palette command parks focus on the
-   * Explorer first, which takes the side bar's
-   * views off screen, and a view off screen has no
-   * page. The Inspector is where the journeys read
-   * a block, so the helper that hands it over shows
-   * it again when a command has hidden it. Held
-   * here once, so an editor that renames the view's
-   * focus command fails as this spec rather than as
-   * every journey that reads a block.
+   * Every command run through `runCommand()`
+   * parks focus on the Explorer first, which takes
+   * the side bar's views off screen, and a view off
+   * screen has no page. The Inspector is where the
+   * journeys read a block, so the helper that hands
+   * it over shows it again when a command has
+   * hidden it. Held here once, so an editor that
+   * renames the view's focus command fails as this
+   * spec rather than as every journey that reads a
+   * block.
    */
   test('the Inspector is shown again after a command hid it', async () => {
     await vscode.runCommand('View: Show Explorer');

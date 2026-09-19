@@ -53,10 +53,6 @@ import {
  * of those finds its own frames and opens its own
  * run rather than trusting the one before.
  */
-type Workflow = {
-  nodes: { id: string; title?: string; retry?: { maxAttempts?: number } }[];
-};
-
 test.describe('a replay, from a run that finished', () => {
   const NAME = 'replay-journey';
   const WORKFLOW = 'two_blocks';
@@ -65,6 +61,11 @@ test.describe('a replay, from a run that finished', () => {
   const TRIGGER = 'started_by_hand';
   const FILE = `${WORKFLOW}.workflow.json`;
   const RENAMED = 'Answer the enquiry';
+
+  /** Only the parts of a workflow this spec reads. */
+  type Workflow = {
+    nodes: { id: string; title?: string; retry?: { maxAttempts?: number } }[];
+  };
 
   /** Typed into the Runs view's box, and nowhere
    *  else: unique to this run of the file, so
@@ -341,13 +342,18 @@ test.describe('a replay, from a run that finished', () => {
 
     await expect.poll(() => vscode.webviewHasFocus('inspector')).toBe(true);
 
+    // Not inspector(): the command it may run would
+    // park the keyboard on the Explorer, and the
+    // poll above found this page with the keyboard.
     const inspector = await vscode.webview('inspector');
     const replay = inspector.locator(
       '[data-evidence="block"] [data-evidence-action="replayFrom"]',
     );
 
-    // The row, not only the block: the head names
-    // the operation Enter picked.
+    // The Inspector followed the pick: it names the
+    // row the block's card is drawn from. That the
+    // row itself was picked is the trace row's mark
+    // above.
     await expect(
       inspector.locator(
         `[data-inspector-header] [data-function-id="${functionId}"]`,

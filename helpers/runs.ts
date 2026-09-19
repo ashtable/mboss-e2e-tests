@@ -15,11 +15,11 @@ import { expect, type FrameLocator, type Locator } from '@playwright/test';
  * carries rather than by where it sits.
  *
  * Each of these reads only the frame it is handed.
- * The view sits in the side bar, and every palette
- * command takes the side bar off screen and brings
- * the view back as a new page, so the caller finds
- * the frame again after a command rather than
- * handing in one it kept.
+ * The view sits in the side bar, and every command
+ * `runCommand()` runs takes the side bar off screen
+ * and brings the view back as a new page, so the
+ * caller finds the frame again after such a command
+ * rather than handing in one it kept.
  */
 
 /** A run's row on the list. */
@@ -53,7 +53,6 @@ export function listedRuns(runs: FrameLocator): Promise<string[]> {
 export async function startedRun(
   runs: FrameLocator,
   before: readonly string[],
-  options: { timeout?: number } = {},
 ): Promise<string> {
   const marked = runs.locator(
     'li[data-run]:has(> button.run-head[aria-current="true"])',
@@ -71,10 +70,7 @@ export async function startedRun(
 
         return found;
       },
-      {
-        message: 'no run the list had not shown before came up marked',
-        timeout: options.timeout,
-      },
+      { message: 'no run the list had not shown before came up marked' },
     )
     .not.toBe('');
 
