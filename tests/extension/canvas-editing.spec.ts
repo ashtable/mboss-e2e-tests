@@ -442,6 +442,10 @@ test.describe('editing a workflow on the canvas', () => {
     // And the box that owns the other half of the
     // rule is left alone, because emptying it would
     // not answer this.
+    //
+    // The box first: once it is drawn the page is,
+    // so the note missing under it is an answer.
+    await expect(await box('deduplicationPath')).toBeVisible();
     await expect(await note('deduplicationPath')).toHaveCount(0);
 
     await type('partitionPath', 'documentId');
@@ -504,6 +508,8 @@ test.describe('editing a workflow on the canvas', () => {
       expect(config.enqueue?.partitionPath).toBeUndefined();
     });
 
+    // A box the form always draws, first, as above.
+    await expect(await box('deduplicationPath')).toBeVisible();
     await expect(await box('partitionPath')).toHaveCount(0);
 
     await type('deduplicationPath', 'documentId');
