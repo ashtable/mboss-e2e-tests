@@ -467,6 +467,23 @@ test.describe('a replay, from a run that finished', () => {
       inspector.locator('[data-run-sample] [data-recorded]'),
     ).toContainText(MARK);
 
+    // Typed again with the card already drawn, so
+    // what it shows next is the box followed rather
+    // than the box read once. Found without a
+    // command: a command would draw both pages anew.
+    const RETYPED = `${MARK}-retyped`;
+
+    runs = await vscode.webview('runs');
+
+    await runs
+      .locator('[data-input]')
+      .fill(JSON.stringify({ sentinel: RETYPED }));
+
+    await expect(inspector.locator(kind)).toHaveText('trigger');
+    await expect(
+      inspector.locator('[data-run-sample] [data-recorded]'),
+    ).toContainText(RETYPED);
+
     expect(await readFile(document(), 'utf8')).not.toContain(MARK);
   });
 
