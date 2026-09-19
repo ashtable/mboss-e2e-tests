@@ -361,6 +361,18 @@ build's own entry-point name — which survives a redesign, a translation and a
 VS Code that renames its layers. `topology.spec.ts` asserts that chain on its
 own, so an editor that moves it fails as one spec rather than as all of them.
 
+**A frame is one page, held by name.** The frame the helper hands back is held
+to the page it found by the name its outer iframe carries, never by its place
+among the others. The side bar's views drop their pages whenever something takes
+them off screen — and every command `runCommand()` types does, because it parks
+focus on the Explorer first so that the agent panel's page cannot keep the
+keystroke — so a frame found by position would slide on to a neighbour, or on to
+nothing, while the canvas it was found for is still in front. A side-bar view
+that was hidden comes back as a new page, so the Inspector is never kept across
+a command: `inspector()` finds its page afresh on every call, showing the view
+again first when a command has taken it off screen, and the journeys ask for it
+at every gesture that reads it.
+
 **A fresh profile _and_ a fresh project directory, every run.** Both are
 minted under the system temp root, and both matter. A workspace-trust decision
 is remembered against the folder's path and outlives the profile that made it —
@@ -389,7 +401,7 @@ asked to be an MCP server, from inside the project, the way an agent starts it.
 ACP agent registered through `mboss.agent`'s `custom` slot answers the
 sermon-helper prompt: the panel traces it reading both catalogs and dry-running
 a spec through the vendored server, the canvas draws
-`PREVIEW CHANGES · +16 nodes +18 edges` over sixteen dashed blocks, and
+`Preview changes · +16 nodes +18 edges` over sixteen dashed blocks, and
 **Approve & apply** writes the document at revision 2, marks the proposal
 `applied`, regenerates, and sends the agent one synthetic prompt — which the
 agent answers by scaffolding the code behind.
@@ -399,12 +411,30 @@ cursor back in the composer and changes nothing at all; asking again is what
 replaces a proposal, and the older one flips to `discarded` because core
 superseded it, not because the panel stopped drawing it.
 
-**`inspector-in-canvas.spec.ts`** — selecting a block costs nothing else on
-screen. The Inspector is a column of the canvas' own page rather than a view
-that takes the agent panel's place, so the sharpest assertion here is about a
-panel this spec never selects anything in: an unsent draft left in the composer
-is still there afterwards, which is the one piece of state that can tell "still
-there" from "built again".
+**`inspector-in-canvas.spec.ts`** — the Inspector follows the block picked on
+a canvas, and picking one costs nothing else on screen. The Inspector is a view
+of its own in the mBoss side bar, beside the agent panel rather than in its
+place, so the sharpest assertion here is about a panel this spec never selects
+anything in: an unsent draft left in the composer is still there afterwards,
+which is the one piece of state that can tell "still there" from "built again".
+Then the round trip through the file: a block renamed at the head of the
+Inspector is saved under its new name, and a trigger's offer to start a run goes
+while an edit is unsaved and comes back when the file is saved. That save is
+made from the keyboard, which leaves the side bar alone, so the Inspector that
+shows the offer again is the page that heard about the save rather than a new
+one drawn after it.
+
+**`inspector-reveal.spec.ts`** — when the Inspector puts itself in front of
+somebody. The first canvas opened in a window opens the mBoss container with the
+Inspector in it, leaves the canvas' tab in front and the keyboard out of the
+side bar, and draws the Runs view beside it once rather than twice. After that,
+a block picked while the side bar shows the Explorer leaves the Explorer there.
+It has a window of its own, because the first half happens once in a window's
+life, and it never asks for the Inspector through `inspector()`: whether it is
+showing is the question. It asserts where the keyboard is not rather than where
+it is, because the editor itself does not always hand a webview the keyboard it
+asked for while the page is still loading: with no Inspector involved at all, a
+canvas opened from the file finder can leave the keyboard on the window.
 
 **`canvas-editing.spec.ts`** — building a workflow by hand, with a real
 pointer. A Step chip is carried out of the rail and let go over the pane, and
@@ -421,18 +451,29 @@ would read true of a command that did nothing at all.
 
 `tests/extension-stack/` is its own Playwright project, and every file in it is
 a journey. They are the only place the whole product runs at once: a project is
-scaffolded, its code is generated from the document, the Runs panel brings the
-project's own containers up with `docker compose up --build --wait`, a run is
-fired at the app inside them by hand, and the run is followed to `done` through
-the ledger Postgres wrote. Then **Open flight recorder** opens the see tab on
-that run's id. There is no terminal anywhere in it.
+scaffolded, its code is generated from the document, the Runs view's **Start
+app** brings the project's own containers up with
+`docker compose up --build --wait`, a run is fired at the app inside them with
+**Run**, and the run is followed to `done` through the ledger Postgres wrote.
+Then the run's row opens its tab on that run's id. There is no terminal anywhere
+in it.
 
 It is opt-in — `npm run e2e:stack`, never `e2e:ext`, and not in `ci.yml`. It
 wants a Docker daemon, an image build and minutes, and every other extension
 spec is entitled to run on a machine with none of them. What it can be refused
 for is checked in global setup and said in one sentence, because a stack that
-cannot come up otherwise fails deep inside the journey as a Start Local Stack
-that did nothing — which is exactly the regression the journey exists to catch.
+cannot come up otherwise fails deep inside the journey as a Start app that did
+nothing — which is exactly the regression the journey exists to catch.
+
+**A run is its row.** The Runs view is one list of the project's ledger, and a
+run this window started has no card of its own: it is the list's top row, marked
+and opened out. So a journey reads how a run went, stops it, resumes it, opens
+its tab and hands it to an agent through that row, found by the id it carries
+rather than by where it sits. `helpers/runs.ts` holds those gestures, and one of
+them is how a journey learns the id at all: the run a start put on the list is
+the row that came up marked with an id the list had not shown before. The list
+sits in the side bar, so a journey finds its page again after any
+`runCommand()`, the way it does the Inspector's.
 
 **Every extension project is moved off the ports the scaffold emits.** The
 compose file a scaffold writes publishes Postgres on 5432 and the app on 3000,
@@ -467,6 +508,31 @@ Its tests are one journey rather than nine cases, so the file is `serial`: a
 worker that has failed a test is thrown away and the next test starts a new
 one, which here would mean a second scaffold, a second install and a second
 stack, all to run a step whose subject never happened.
+
+`replay-journey.spec.ts` forks a finished run from its one step, through the
+replay on the block's card in the Inspector beside the run's tab, and then, with
+the two runs on the ledger, holds the Inspector to what it does beside a run's
+tab. The replay is reached from the keyboard alone: Enter on the step's row on
+the Trace tab, the view's own focus command from the palette, then Tab. A run
+opened brings the Inspector back after somebody folded it away, with no focus
+command run by anybody. The trigger's card shows what is typed into the Runs
+view's box as it is typed, and the file never has it. And an edit made from the
+run's tab opens the canvas beside it without taking the front, and Save All is
+what writes it, since the run's tab holds no document to save.
+
+The keyboard leg opens the palette with its own key, through
+`runCommandWithKeyboard()`, rather than through `runCommand()`. That one parks
+on the Explorer first, which takes the mBoss views off screen, and the editor
+drops the keyboard on the window when it is asked to focus a view whose page is
+still being drawn again — the Runs view's own focus command does the same from
+the Explorer. A leg run through it would be measuring the park rather than the
+Inspector. Folding a view is animated, so `collapseView()` returns only once the
+views beside it have stopped growing into the room.
+
+`fix-replay-journey.spec.ts` fails a run, rewrites the handler that threw
+straight on disk, and asks for the replay the same way; the box then offers to
+rebuild first, and the fork carries the step before the boundary over, marked
+reused, and runs the mended one new.
 
 ## Scaffolding, across a process boundary
 

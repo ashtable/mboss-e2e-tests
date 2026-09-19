@@ -205,18 +205,26 @@ test.describe('editing a workflow on the canvas', () => {
     });
   };
 
-  /** A box in the Inspector's column. Every field
-   *  the last two tests type into is a line of
-   *  text, including the ones holding a number. */
-  const box = (id: string): Locator =>
-    canvas.locator(`[data-field="${id}"] input`);
+  /** A box in the Inspector. Every field the last
+   *  two tests type into is a line of text,
+   *  including the ones holding a number.
+   *
+   *  Found afresh each time it is asked for: every
+   *  save and every PROBLEMS read in those tests
+   *  goes through the palette, which takes the side
+   *  bar's views off screen, so the Inspector the
+   *  last gesture used may be gone by the next. */
+  const box = async (id: string): Promise<Locator> =>
+    (await vscode.inspector()).locator(`[data-field="${id}"] input`);
 
   /** Typed in and let go of, which is what commits
    *  a box — a field that changed on every
    *  keystroke would write a revision per letter. */
   const type = async (id: string, value: string): Promise<void> => {
-    await box(id).fill(value);
-    await box(id).press('Enter');
+    const field = await box(id);
+
+    await field.fill(value);
+    await field.press('Enter');
   };
 
   /**
@@ -226,7 +234,7 @@ test.describe('editing a workflow on the canvas', () => {
    * Every gesture in the last two tests is followed
    * by one of these, and not for tidiness: an edit
    * carries the revision it was made against, and
-   * the column is handed the next revision only
+   * the Inspector is handed the next revision only
    * when the document changes — so a second box
    * committed while the first is still on its way
    * back is refused as stale, exactly as a second
@@ -246,14 +254,16 @@ test.describe('editing a workflow on the canvas', () => {
   /** Whether the queue holds its items back per
    *  partition. A menu, so it commits the moment it
    *  changes. */
-  const partitioning = (state: 'on' | 'off'): Promise<string[]> =>
-    canvas.locator('[data-field="partitioning"] select').selectOption(state);
+  const partitioning = async (state: 'on' | 'off'): Promise<string[]> =>
+    (await vscode.inspector())
+      .locator('[data-field="partitioning"] select')
+      .selectOption(state);
 
   /** What the Inspector draws under a box, which is
    *  a finding that box is one of the ways out
    *  of. */
-  const note = (id: string): Locator =>
-    canvas.locator(`[data-field="${id}"] .field-note`);
+  const note = async (id: string): Promise<Locator> =>
+    (await vscode.inspector()).locator(`[data-field="${id}"] .field-note`);
 
   /**
    * Whether the editor is saying a sentence about
@@ -261,7 +271,7 @@ test.describe('editing a workflow on the canvas', () => {
    *
    * Saved first, because PROBLEMS is filled by code
    * generation and generation answers the file
-   * rather than the buffer the column edits. The
+   * rather than the buffer the Inspector edits. The
    * count is retried from there: a panel still
    * showing what the last generation found is the
    * ordinary state of one for a second or so after
@@ -426,13 +436,17 @@ test.describe('editing a workflow on the canvas', () => {
       expect(config.queue?.partitionConcurrency).toBeDefined(),
     );
 
-    await expect(box('partitionPath')).toBeVisible();
+    await expect(await box('partitionPath')).toBeVisible();
     await said(NO_PARTITION_KEY, 1);
 
     // And the box that owns the other half of the
     // rule is left alone, because emptying it would
     // not answer this.
-    await expect(note('deduplicationPath')).toHaveCount(0);
+    //
+    // The box first: once it is drawn the page is,
+    // so the note missing under it is an answer.
+    await expect(await box('deduplicationPath')).toBeVisible();
+    await expect(await note('deduplicationPath')).toHaveCount(0);
 
     await type('partitionPath', 'documentId');
     await onQueue((config) =>
@@ -443,15 +457,16 @@ test.describe('editing a workflow on the canvas', () => {
     // The third group is the one nobody turns
     // often, so it arrives folded and stays that
     // way until it is asked for.
-    const advanced = canvas.locator('[data-field="advanced"] .section-head');
+    const inspector = await vscode.inspector();
+    const advanced = inspector.locator('[data-field="advanced"] .section-head');
 
     await expect(advanced).toHaveAttribute('aria-expanded', 'false');
-    await expect(canvas.locator('[data-field="onConflict"]')).toHaveCount(0);
+    await expect(inspector.locator('[data-field="onConflict"]')).toHaveCount(0);
 
     await advanced.click();
 
     await expect(
-      canvas.locator('[data-field="onConflict"] select'),
+      inspector.locator('[data-field="onConflict"] select'),
     ).toBeVisible();
   });
 
@@ -482,7 +497,7 @@ test.describe('editing a workflow on the canvas', () => {
       canvas.locator(`.react-flow__node[data-id="${QUEUE}"]`),
     ).toHaveClass(/\bselected\b/);
     await expect(
-      canvas.locator('[data-field="partitioning"] select'),
+      (await vscode.inspector()).locator('[data-field="partitioning"] select'),
     ).toBeVisible();
 
     // Back to a queue nothing is partitioned by,
@@ -493,7 +508,9 @@ test.describe('editing a workflow on the canvas', () => {
       expect(config.enqueue?.partitionPath).toBeUndefined();
     });
 
-    await expect(box('partitionPath')).toHaveCount(0);
+    // A box the form always draws, first, as above.
+    await expect(await box('deduplicationPath')).toBeVisible();
+    await expect(await box('partitionPath')).toHaveCount(0);
 
     await type('deduplicationPath', 'documentId');
     await onQueue((config) =>
@@ -502,28 +519,28 @@ test.describe('editing a workflow on the canvas', () => {
 
     // From here the note is the wait as well as the
     // assertion: it is drawn from the document and
-    // not from what the column is holding, so it
+    // not from what the Inspector is holding, so it
     // only appears once the edit has come back.
     await partitioning('on');
 
-    await expect(note('deduplicationPath')).toHaveText(DEDUPLICATES);
+    await expect(await note('deduplicationPath')).toHaveText(DEDUPLICATES);
     await said(DEDUPLICATES, 1);
 
     await partitioning('off');
 
-    await expect(note('deduplicationPath')).toHaveCount(0);
+    await expect(await note('deduplicationPath')).toHaveCount(0);
     await said(DEDUPLICATES, 0);
 
     // And the other way out of it, from the box
     // that is still a box.
     await partitioning('on');
 
-    await expect(note('deduplicationPath')).toHaveText(DEDUPLICATES);
+    await expect(await note('deduplicationPath')).toHaveText(DEDUPLICATES);
     await said(DEDUPLICATES, 1);
 
     await type('deduplicationPath', '');
 
-    await expect(note('deduplicationPath')).toHaveCount(0);
+    await expect(await note('deduplicationPath')).toHaveCount(0);
     await said(DEDUPLICATES, 0);
   });
 });

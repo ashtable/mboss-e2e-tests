@@ -10,11 +10,11 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { _electron } from '@playwright/test';
+import { _electron, expect } from '@playwright/test';
 import type { FrameLocator, Locator, Page } from '@playwright/test';
 import {
   downloadAndUnzipVSCode,
@@ -169,7 +169,8 @@ export async function assertExtensionBuilt(): Promise<void> {
  * would be matching on something localized, or on
  * markup a redesign owns.
  */
-export type WebviewName = 'canvas' | 'sidebar' | 'runs' | 'see' | 'gallery';
+export type WebviewName =
+  'canvas' | 'sidebar' | 'runs' | 'see' | 'inspector' | 'gallery';
 
 /** A running editor, driven. */
 export type DrivenVsCode = {
@@ -177,16 +178,49 @@ export type DrivenVsCode = {
   page: Page;
 
   /** The named webview's content frame, once it has
-   *  rendered. */
+   *  rendered, for as long as that page lives.
+   *
+   *  A view the side bar stops showing loses its
+   *  page and comes back in a new one, so a frame
+   *  kept across a command can outlive it. A
+   *  canvas in front keeps its page whatever the
+   *  side bar does. */
   webview(name: WebviewName): Promise<FrameLocator>;
 
   /** Whether it is on screen right now, asked once
    *  and answered either way. */
   showsWebview(name: WebviewName): Promise<boolean>;
 
+  /** The Inspector's content frame, found afresh
+   *  on every call and shown again first when it
+   *  is not on screen.
+   *
+   *  Every command run through `runCommand()`
+   *  parks focus on the Explorer, which takes the
+   *  side bar's views off screen, and a view off
+   *  screen loses its page. A frame an earlier call
+   *  handed back may be gone by the next gesture,
+   *  so the journeys ask for this one wherever they
+   *  read it. */
+  inspector(): Promise<FrameLocator>;
+
   /** Runs a command from the palette, by the title
    *  it shows there. */
   runCommand(title: string): Promise<void>;
+
+  /** Runs a command from the palette the way a
+   *  person at the keyboard does: opened with its
+   *  key from wherever the keyboard is, the title
+   *  typed, Enter.
+   *
+   *  Nothing is parked first, so the side bar keeps
+   *  what it was showing. A spec whose point is
+   *  where a command leaves the keyboard needs this
+   *  rather than `runCommand()`, whose park on the
+   *  Explorer takes the side bar's views off screen
+   *  and hands the command a page still being
+   *  drawn. */
+  runCommandWithKeyboard(title: string): Promise<void>;
 
   /** Writes the open document to disk.
    *
@@ -198,6 +232,33 @@ export type DrivenVsCode = {
    *  the file would be reading what it opened. */
   save(): Promise<void>;
 
+  /** Writes the open document to disk with the
+   *  editor's own shortcut, from wherever the
+   *  keyboard is.
+   *
+   *  Nothing is parked first, so the side bar
+   *  keeps what it was showing and a view on screen
+   *  before the save is the same page after it. A
+   *  spec whose point is what that page does when
+   *  the file is saved needs this rather than
+   *  `save()`, whose palette would take the page
+   *  away and draw a new one. */
+  saveWithKeyboard(): Promise<void>;
+
+  /** Whether the side bar is showing the Explorer's
+   *  file tree right now, asked once. */
+  showsExplorer(): Promise<boolean>;
+
+  /** Whether the keyboard is anywhere in the side
+   *  bar right now: on one of its own controls, or
+   *  in a page one of the extension's views draws
+   *  there. */
+  sideBarHasFocus(): Promise<boolean>;
+
+  /** Whether the keyboard is in the named
+   *  webview's page right now, asked once. */
+  webviewHasFocus(name: WebviewName): Promise<boolean>;
+
   /** Opens a project file in whichever editor
    *  claims it. */
   openFile(relative: string): Promise<void>;
@@ -205,6 +266,22 @@ export type DrivenVsCode = {
   /** The tab a file is open in, named the way the
    *  tab strip names it. */
   editorTab(name: string): Locator;
+
+  /** The tab whose title says this: how an editor
+   *  that holds no file is found, such as a run's
+   *  tab, which is titled with the run's id. */
+  editorTabTitled(text: string): Locator;
+
+  /** The tab of the editor in front: in a window
+   *  split in two, the front tab of the group the
+   *  editor counts as the active one. */
+  activeEditorTab(): Locator;
+
+  /** Folds a view in the side bar away by its own
+   *  header, the way a person does, and waits until
+   *  the header says it is folded and the views
+   *  beside it have stopped growing. */
+  collapseView(title: string): Promise<void>;
 
   /** Every sentence PROBLEMS is showing, with the
    *  panel opened first if it was not already. */
@@ -329,10 +406,27 @@ export async function driveVsCode(
     webview: (name) => webviewFrame(page, name),
     showsWebview: async (name) =>
       (await showingWebview(page, name)) !== undefined,
+    inspector: async () => {
+      const shown = await showingWebview(page, 'inspector');
+
+      if (shown !== undefined) return shown;
+
+      await runCommand(page, INSPECTOR_VIEW);
+
+      return webviewFrame(page, 'inspector');
+    },
     runCommand: (title) => runCommand(page, title),
+    runCommandWithKeyboard: (title) => runCommandWithKeyboard(page, title),
     save: () => runCommand(page, 'File: Save'),
+    saveWithKeyboard: () => page.keyboard.press('ControlOrMeta+s'),
+    showsExplorer: () => page.locator('.explorer-folders-view').isVisible(),
+    sideBarHasFocus: () => sideBarHasFocus(page),
+    webviewHasFocus: (name) => webviewHasFocus(page, name),
     openFile: (relative) => openFile(page, relative),
     editorTab: (name) => editorTab(page, name),
+    editorTabTitled: (text) => editorTabTitled(page, text),
+    activeEditorTab: () => activeEditorTab(page),
+    collapseView: (title) => collapseView(page, title),
     problems: () => problems(page),
     answerFolderPick: (path) => answerFolderPick(page, path),
     answerInput: (text) => answerInput(page, text),
@@ -655,44 +749,158 @@ async function webviewFrame(
  * and not a contract. Asking whether it is visible
  * answers the question a person would ask either
  * way.
+ *
+ * The frame handed back is held to that one page
+ * by the name its outer iframe carries, not by
+ * where it sits among the others. The side bar's
+ * views drop their pages whenever a command hides
+ * them, so a frame found by its place would slide
+ * on to a neighbour, or on to nothing, while the
+ * canvas it was found for is still on screen.
  */
 async function showingWebview(
   page: Page,
   name: WebviewName,
 ): Promise<FrameLocator | undefined> {
+  const id = await showingHost(page, name);
+
+  return id === undefined ? undefined : pageIn(hostNamed(page, id));
+}
+
+/** The name the workbench gave the outer iframe
+ *  of that webview, if it is on screen now. */
+async function showingHost(
+  page: Page,
+  name: WebviewName,
+): Promise<string | undefined> {
   const marker = `script[src$="/webview/${name}.js"]`;
   const outer = page.locator('iframe.webview');
 
   for (let at = 0; at < (await outer.count()); at += 1) {
     const host = outer.nth(at);
-    const frame = host.contentFrame().locator('iframe').contentFrame();
 
     // A frame detaches while it is being read
     // whenever the editor re-lays the view out.
     // That is not a failure; it is the next
     // pass's problem.
-    const found = await frame
+    const found = await pageIn(host)
       .locator(marker)
       .count()
       .catch(() => 0);
 
-    if (found > 0 && (await host.isVisible().catch(() => false))) {
-      return frame;
+    if (found === 0 || !(await host.isVisible().catch(() => false))) {
+      continue;
     }
+
+    const id = await host.getAttribute('name').catch(() => null);
+
+    if (id !== null && id !== '') return id;
   }
 
   return undefined;
 }
+
+function hostNamed(page: Page, id: string): Locator {
+  return page.locator(`iframe.webview[name="${id}"]`);
+}
+
+/** The extension's views that sit in the side bar
+ *  rather than in the editor area. */
+const SIDE_BAR_VIEWS: readonly WebviewName[] = ['sidebar', 'runs', 'inspector'];
+
+/**
+ * Whether the keyboard is anywhere in the side
+ * bar.
+ *
+ * Asked of the workbench's own focused element,
+ * which is a webview's outer iframe whenever that
+ * webview has the keyboard. The side bar's webviews
+ * are hoisted out of it into the overlay layer, so
+ * they are told apart by name rather than by where
+ * they sit in the DOM.
+ */
+async function sideBarHasFocus(page: Page): Promise<boolean> {
+  const hosts: string[] = [];
+
+  for (const name of SIDE_BAR_VIEWS) {
+    const id = await showingHost(page, name);
+
+    if (id !== undefined) hosts.push(id);
+  }
+
+  return page.evaluate((ids) => {
+    const focused = document.activeElement;
+
+    if (focused === null) return false;
+    if (focused.closest('.part.sidebar') !== null) return true;
+
+    return (
+      focused.tagName === 'IFRAME' &&
+      ids.includes(focused.getAttribute('name') ?? '')
+    );
+  }, hosts);
+}
+
+/**
+ * Whether the keyboard is in one webview's page.
+ *
+ * Asked the same way as the side bar's question:
+ * the workbench's focused element is that
+ * webview's outer iframe whenever its page has the
+ * keyboard, and the iframe is told apart by name.
+ */
+async function webviewHasFocus(
+  page: Page,
+  name: WebviewName,
+): Promise<boolean> {
+  const id = await showingHost(page, name);
+
+  if (id === undefined) return false;
+
+  return page.evaluate((host) => {
+    const focused = document.activeElement;
+
+    return (
+      focused !== null &&
+      focused.tagName === 'IFRAME' &&
+      focused.getAttribute('name') === host
+    );
+  }, id);
+}
+
+/** The extension's page, two iframes down from
+ *  the one the workbench holds. */
+function pageIn(host: Locator): FrameLocator {
+  return host.contentFrame().locator('iframe').contentFrame();
+}
+
+/**
+ * The palette entry that brings the Inspector back.
+ *
+ * The editor gives every view a command that opens
+ * its container and focuses it, titled from the
+ * container's name and the view's, so the extension
+ * contributes nothing for it. Its own commands open
+ * the agent panel or the runs list; none opens the
+ * Inspector, which follows whatever canvas or run
+ * tab is in front rather than being asked for.
+ */
+const INSPECTOR_VIEW = 'mBoss: Focus on Inspector View';
 
 /**
  * A command, through the palette a person types
  * into.
  *
  * Focus is parked on the Explorer first, and that
- * is load-bearing rather than tidy: a webview with
- * keyboard focus swallows the palette's keystroke,
- * so a command run after a spec has typed into the
- * agent panel would silently never open.
+ * is load-bearing rather than tidy: the agent
+ * panel's page keeps the palette's key, so a
+ * command run after a spec has typed into it
+ * would silently never open. The run tab's and the
+ * canvas' pages let the key through.
+ *
+ * The park takes the side bar's views off screen,
+ * so a spec about where the keyboard ends up uses
+ * `runCommandWithKeyboard()`, which parks nothing.
  */
 async function runCommand(page: Page, title: string): Promise<void> {
   await parkFocus(page);
@@ -709,6 +917,34 @@ async function runCommand(page: Page, title: string): Promise<void> {
 }
 
 /**
+ * A command, through the palette, from the
+ * keyboard alone.
+ *
+ * The palette's key reaches the workbench from a
+ * page that has the keyboard, as long as the page
+ * lets the key go on to its window, which the run
+ * tab's and the canvas' pages do. The row is waited
+ * on before Enter, so Enter runs the command asked
+ * for rather than whatever the list showed first
+ * while the title was still being typed.
+ */
+async function runCommandWithKeyboard(
+  page: Page,
+  title: string,
+): Promise<void> {
+  await page.keyboard.press('F1');
+  await page.waitForSelector('.quick-input-widget', { state: 'visible' });
+  await page.keyboard.type(title);
+
+  await page
+    .locator('.quick-input-list .monaco-list-row.focused')
+    .filter({ hasText: title })
+    .waitFor();
+
+  await page.keyboard.press('Enter');
+}
+
+/**
  * Opens a project file by its path.
  *
  * Through quick open rather than the Explorer tree,
@@ -717,6 +953,12 @@ async function runCommand(page: Page, title: string): Promise<void> {
  * chance for this to be about the tree instead.
  * Backspacing the leading `>` is how the palette
  * turns back into the file finder.
+ *
+ * The row pressed is the one naming the file, not
+ * the first: the finder opens on the editors used
+ * lately, a run's tab among them, and the first row
+ * the moment the name is typed can still be one of
+ * those.
  */
 async function openFile(page: Page, relative: string): Promise<void> {
   await parkFocus(page);
@@ -725,7 +967,11 @@ async function openFile(page: Page, relative: string): Promise<void> {
   await page.keyboard.press('Backspace');
   await page.keyboard.type(relative);
 
-  await page.locator('.quick-input-list .monaco-list-row').first().click();
+  await page
+    .locator('.quick-input-list .monaco-list-row')
+    .filter({ hasText: basename(relative) })
+    .first()
+    .click();
 }
 
 /**
@@ -744,6 +990,105 @@ async function openFile(page: Page, relative: string): Promise<void> {
  */
 function editorTab(page: Page, name: string): Locator {
   return page.locator(`.tabs-container .tab[data-resource-name="${name}"]`);
+}
+
+/**
+ * The tab an editor with no file is open in.
+ *
+ * A webview's tab carries no resource worth
+ * naming, so it is found by what its title says.
+ * The caller says something only that tab says,
+ * such as a run's id.
+ */
+function editorTabTitled(page: Page, text: string): Locator {
+  return page.locator('.tabs-container .tab').filter({ hasText: text });
+}
+
+/**
+ * The tab of the editor in front.
+ *
+ * Every group of editors marks its own front tab,
+ * so a window with a document open beside another
+ * has two marked tabs. The one in front is the
+ * marked tab of the group the workbench marks as
+ * active, which is the group an editor opened
+ * without taking focus leaves alone.
+ */
+function activeEditorTab(page: Page): Locator {
+  return page.locator(
+    '.editor-group-container.active .tabs-container .tab.active',
+  );
+}
+
+/**
+ * Folds a side-bar view away by its header.
+ *
+ * The header is found by the view's name, which is
+ * the one word it shows. It is pressed only while
+ * it says the view is open, since pressing a folded
+ * header opens it, and the fold is waited on
+ * through the header's own `aria-expanded` rather
+ * than through the view's page: a view folded away
+ * drops its page, and a page that is gone reads the
+ * same as one not drawn yet.
+ *
+ * The fold is animated: the views beside it grow
+ * into the room it made over a few frames, and
+ * their pages move with them. So it returns only
+ * once every webview has stopped moving, or the
+ * next click aimed into one of them lands where its
+ * target was a moment before.
+ */
+async function collapseView(page: Page, title: string): Promise<void> {
+  const header = page
+    .locator('.part.sidebar .pane-header')
+    .filter({ hasText: new RegExp(`^${title}$`, 'i') });
+
+  if ((await header.getAttribute('aria-expanded')) === 'true') {
+    await header.click();
+  }
+
+  await expect(header).toHaveAttribute('aria-expanded', 'false');
+  await webviewsAtRest(page);
+}
+
+/**
+ * Waits until no webview has moved or changed size
+ * across three looks a short while apart.
+ *
+ * The outer frames are measured rather than
+ * anything inside them: a page follows its frame
+ * within a frame or two, which a click's own wait
+ * for its target to stand still covers.
+ */
+async function webviewsAtRest(page: Page): Promise<void> {
+  const boxes = (): Promise<string> =>
+    page.locator('iframe.webview').evaluateAll((frames) =>
+      frames
+        .map((frame) => {
+          const box = frame.getBoundingClientRect();
+
+          return `${box.x},${box.y},${box.width},${box.height}`;
+        })
+        .join(' '),
+    );
+
+  let last = await boxes();
+  let still = 0;
+
+  await expect
+    .poll(
+      async () => {
+        const now = await boxes();
+
+        still = now === last ? still + 1 : 0;
+        last = now;
+
+        return still;
+      },
+      { message: 'the webviews never stood still', intervals: [60] },
+    )
+    .toBeGreaterThanOrEqual(2);
 }
 
 /**

@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { expect, test, type FrameLocator } from '@playwright/test';
+import {
+  expect,
+  test,
+  type FrameLocator,
+  type Locator,
+} from '@playwright/test';
 
 import {
   EXTENSION_MAILSINK_PORT,
@@ -13,6 +18,13 @@ import {
   rewriteEnv,
 } from '../../helpers/app.js';
 import { startMailsink, type Mailsink } from '../../helpers/mail.js';
+import {
+  listedRuns,
+  openRunTab,
+  runRow,
+  startStack,
+  startedRun,
+} from '../../helpers/runs.js';
 import {
   discardExtensionProject,
   driveVsCode,
@@ -170,16 +182,34 @@ test.describe('a queue block, over a real stack', () => {
       check(config);
     }).toPass({ timeout: WRITE_MS });
 
-  /** A box in the Inspector's column. */
-  const box = (id: string) => canvas.locator(`[data-field="${id}"] input`);
+  /** A box in the Inspector.
+   *
+   *  Found afresh each time it is asked for: a save
+   *  goes through the palette, which takes the side
+   *  bar's views off screen, so the Inspector the
+   *  last gesture used may be gone by the next. */
+  const box = async (id: string): Promise<Locator> =>
+    (await vscode.inspector()).locator(`[data-field="${id}"] input`);
 
   /** Typed in and let go of, which is what commits
    *  a box — a field that changed on every
    *  keystroke would write a revision per letter. */
   const type = async (id: string, value: string): Promise<void> => {
-    await box(id).fill(value);
-    await box(id).press('Enter');
+    const field = await box(id);
+
+    await field.fill(value);
+    await field.press('Enter');
   };
+
+  /**
+   * What follows a figure on the queue's card,
+   * saying where it came from: worked out from the
+   * ledger, or read off the document. Drawn inside
+   * the figure's own box, so a figure is read with
+   * it.
+   */
+  const DERIVED = '· derived';
+  const CONFIGURED = '· configured';
 
   /**
    * Whether the editor is saying a sentence about
@@ -187,7 +217,7 @@ test.describe('a queue block, over a real stack', () => {
    *
    * Saved first, because PROBLEMS is filled by code
    * generation and generation answers the file
-   * rather than the buffer the column edits.
+   * rather than the buffer the Inspector edits.
    */
   const said = async (sentence: string, times: number): Promise<void> => {
     await vscode.save();
@@ -343,20 +373,13 @@ test.describe('a queue block, over a real stack', () => {
    * `/healthz` from inside its own container, having
    * registered the queue on the way up.
    */
-  test('Start Local Stack brings the project up', async () => {
+  test('Start app brings the project up', async () => {
     test.setTimeout(1_800_000);
 
     await vscode.runCommand('mBoss: Open Runs');
     runs = await vscode.webview('runs');
 
-    await runs.locator('[data-stack-toggle]').click();
-
-    for (const service of ['postgres', 'app']) {
-      await expect(
-        runs.locator(`[data-zone="stack"] [data-service="${service}"]`),
-        `${service} should be running`,
-      ).toHaveAttribute('data-state', 'running', { timeout: 1_800_000 });
-    }
+    await startStack(runs, ['postgres', 'app'], { timeout: 1_800_000 });
   });
 
   /**
@@ -381,13 +404,18 @@ test.describe('a queue block, over a real stack', () => {
   test('runs the workflow, and the block counts its children', async () => {
     test.setTimeout(1_800_000);
 
-    const picker = runs.locator('[data-workflow-picker]');
+    const start = runs.locator('[data-run-workflow]');
 
-    await expect(picker.locator(`option[value="${WORKFLOW}"]`)).toHaveCount(1);
-    await picker.selectOption(WORKFLOW);
+    // The pattern is the one workflow the project
+    // saved, so there is nothing to pick.
+    await expect(start).toBeVisible();
+    await expect(runs.locator('[data-workflow-picker]')).toHaveCount(0);
 
     await runs.locator('[data-input]').fill(upload());
-    await runs.locator('[data-run-workflow]').click();
+
+    const before = await listedRuns(runs);
+
+    await start.click();
 
     const line = canvas.locator(
       `.react-flow__node[data-id="${BLOCK}"] .node-line`,
@@ -397,16 +425,11 @@ test.describe('a queue block, over a real stack', () => {
       timeout: 600_000,
     });
 
-    const live = runs.locator('[data-zone="running-now"]');
+    runId = await startedRun(runs, before);
 
-    await expect(live.locator('.run-line')).toHaveAttribute(
-      'data-outcome',
-      'done',
-      { timeout: 900_000 },
-    );
-
-    runId = (await live.locator('.run-id').innerText()).trim();
-    expect(runId, 'the panel drew a run with no id').not.toBe('');
+    await expect(runRow(runs, runId)).toHaveAttribute('data-outcome', 'done', {
+      timeout: 900_000,
+    });
 
     // Nothing left to finish, so the block goes back
     // to saying what it runs.
@@ -420,25 +443,27 @@ test.describe('a queue block, over a real stack', () => {
    * A queue block's children are runs of their own
    * in the same table, so a fence is the only thing
    * between a list of runs and a list of items. The
-   * filter's count is where that shows: the rows are
-   * drawn minus whatever the session zone already
-   * showed, so this run is not among them, while the
-   * count is over the whole ledger — a fence that
-   * had failed would read thirteen.
+   * All tab counts the whole ledger and the rows
+   * are a page of it, so a fence that had failed
+   * would read thirteen and draw thirteen rows.
    *
    * A filter is pressed first, and that is the read
-   * as well as the gesture. The list goes to the
-   * database when it is shown and when a filter is
-   * chosen, never on a timer, so what it is holding
-   * was read before this run existed.
+   * as well as the gesture: the list goes to the
+   * database when a filter is chosen, so what it
+   * shows was read after every child had been
+   * written.
    */
   test('and the list carries the run, not its twelve children', async () => {
     await runs.locator('[data-filter="all"]').click();
 
-    await expect(runs.locator('[data-filter="all"] .count')).toHaveText('1');
+    await expect(runs.locator('[data-filter="all"] .tab-count')).toHaveText(
+      '1',
+    );
+    await expect(runs.locator('li[data-run]')).toHaveCount(1);
+    await expect(runRow(runs, runId).locator('.run-name')).toHaveText(WORKFLOW);
 
-    // Nowhere on the panel — not the list, not the
-    // session zone, not the run being followed.
+    // Nowhere on the panel, under any name the list
+    // draws.
     await expect(runs.locator('.run-name', { hasText: QUEUED })).toHaveCount(0);
   });
 
@@ -468,15 +493,24 @@ test.describe('a queue block, over a real stack', () => {
     canvas = await vscode.webview('canvas');
 
     await canvas.locator(`.react-flow__node[data-id="${BLOCK}"]`).click();
-    await canvas.locator('[data-inspector-tab="evidence"]').click();
 
-    const card = canvas.locator('[data-evidence="queue"]');
+    const inspector = await vscode.inspector();
+
+    await expect(
+      inspector.locator('[data-inspector-header] [data-inspector-kind]'),
+    ).toHaveText('queue');
+
+    await inspector.locator('[data-inspector-tab="evidence"]').click();
+
+    const card = inspector.locator('[data-evidence="queue"]');
     const reading = (field: string) =>
       card.locator(`[data-evidence-field="${field}"]`);
 
     await expect(card).toBeVisible();
 
-    await expect(reading('queue').locator('.value')).toHaveText(QUEUE);
+    await expect(reading('queue').locator('.value')).toHaveText(
+      `${QUEUE}${CONFIGURED}`,
+    );
     await expect(
       reading('queue').locator('[data-provenance="configured"]'),
     ).toBeVisible();
@@ -489,21 +523,21 @@ test.describe('a queue block, over a real stack', () => {
     }
 
     await expect(reading('active').locator('.value')).toHaveText(
-      /^\d+ of 8 queue-wide$/,
+      new RegExp(`^\\d+ of 8 queue-wide${DERIVED}$`),
     );
     await expect(reading('rateLimit').locator('.value')).toHaveText(
-      '100 per 60 s',
+      `100 per 60 s${CONFIGURED}`,
     );
 
     await expect(reading('observedStarts').locator('.value')).toHaveText(
-      /^\d+ in the last \d+ s$/,
+      new RegExp(`^\\d+ in the last \\d+ s${DERIVED}$`),
     );
     await expect(
       reading('observedStarts').locator('[data-provenance="derived"]'),
     ).toBeVisible();
 
     await expect(reading('registered').locator('.value')).toHaveText(
-      'matches the document',
+      `matches the document${DERIVED}`,
     );
 
     await expect(
@@ -532,7 +566,7 @@ test.describe('a queue block, over a real stack', () => {
    * the block a hand's width away on the canvas.
    */
   test('and a recent-work row opens the run that item started', async () => {
-    const items = canvas.locator(
+    const items = (await vscode.inspector()).locator(
       '[data-evidence-field="recentWork"] [data-queue-item]',
     );
 
@@ -547,40 +581,51 @@ test.describe('a queue block, over a real stack', () => {
 
     see = await vscode.webview('see');
 
-    await expect(see.locator(`.see[data-run="${itemId}"]`)).toBeVisible();
-    await expect(see.locator('.crumb')).toContainText(QUEUED);
+    const page = see.locator(`.see[data-run="${itemId}"]`);
+
+    await expect(page).toBeVisible();
+    await expect(page.locator('.run-header .run-line')).toContainText(QUEUED);
 
     await see.locator('[data-see-tab="trace"]').click();
 
-    const group = see.locator('[data-trace-group]');
+    const apart = see.locator('[data-unattributed]');
 
-    await expect(group).toHaveCount(1);
-    await expect(group).toHaveAttribute('data-trace-group', '');
-    await expect(group.locator('[data-unattributed]')).toBeVisible();
+    await expect(apart).toBeVisible();
 
     // One turn, which is the handler the block runs
-    // for one item.
-    await expect(group.locator('.trace-op')).toHaveCount(1);
+    // for one item — and text rather than a
+    // control, since picking it would pick nothing
+    // the Inspector could draw.
+    const turn = apart.locator('[data-trace-op]');
+
+    await expect(turn).toHaveCount(1);
+    expect(await turn.evaluate((row) => row.tagName)).not.toBe('BUTTON');
+
+    await expect(
+      see.locator('[data-trace-group]:not([data-trace-group=""])'),
+    ).toHaveCount(0);
   });
 
   /**
    * And the way back, on the parent's own page.
    *
    * Twelve starts under the block that made them,
-   * each carrying the run it started; and twelve
-   * waits beside them that DBOS owns rather than any
-   * block, which is what the raw toggle is for. A
-   * trace that showed both by default would be
-   * twenty-four rows for a block a person drew once.
+   * each a row of its own carrying the run it
+   * started; and twelve waits for their results,
+   * which DBOS owns rather than any block, folded
+   * beside the block's rows under a control of
+   * their own. A trace that showed both by default
+   * would be twenty-four rows for a block a person
+   * drew once.
    */
   test("the parent's trace gathers the starts under the block", async () => {
-    // Asked for again rather than kept: a webview is
-    // found among the editor's overlay frames by
-    // where it sits among them, and opening the run
-    // page a moment ago moved what sits where.
+    // Found again rather than kept: asking for the
+    // Inspector may have gone through the palette,
+    // which takes the side bar's views off screen
+    // and brings the list back as a new page.
     runs = await vscode.webview('runs');
 
-    await runs.locator(`[data-session-row="${runId}"] [data-open-run]`).click();
+    await openRunTab(runs, runId);
 
     see = await vscode.webview('see');
 
@@ -588,23 +633,19 @@ test.describe('a queue block, over a real stack', () => {
 
     await see.locator('[data-see-tab="trace"]').click();
 
-    const group = see.locator(`[data-trace-group="${BLOCK}"]`);
+    const block = see.locator(`li[data-trace-group="${BLOCK}"]`);
+    const waits = block.locator('.trace-op[data-owner="sdk"]');
 
-    await group.locator('.trace-head').click();
+    await expect(block.locator('[data-run-select]')).toHaveCount(PAGES);
+    await expect(see.locator('.trace-op[data-owner="sdk"]')).toHaveCount(0);
 
-    await expect(group.locator('[data-run-select]')).toHaveCount(PAGES);
-    await expect(group.locator('.trace-op[data-owner="sdk"]')).toHaveCount(0);
+    const folds = block.locator('[data-sdk-rows]');
 
-    // Clicked rather than checked: the box is drawn
-    // from what the extension holds, so it comes
-    // back ticked a message later and a helper that
-    // reads the state straight after the click sees
-    // the old one. The rows below are the wait.
-    await see.locator('[data-raw-toggle]').click();
+    await expect(folds.first()).toBeVisible();
 
-    await expect(group.locator('.trace-op[data-owner="sdk"]')).toHaveCount(
-      PAGES,
-    );
+    for (const fold of await folds.all()) await fold.click();
+
+    await expect(waits).toHaveCount(PAGES);
   });
 
   /**
@@ -630,11 +671,14 @@ test.describe('a queue block, over a real stack', () => {
     canvas = await vscode.webview('canvas');
 
     await canvas.locator(`.react-flow__node[data-id="${BLOCK}"]`).click();
-    await canvas.locator('[data-inspector-tab="configure"]').click();
+
+    const inspector = await vscode.inspector();
+
+    await inspector.locator('[data-inspector-tab="configure"]').click();
 
     const before = await generated();
 
-    await canvas
+    await inspector
       .locator('[data-field="partitioning"] select')
       .selectOption('on');
     await onQueue((config) =>
