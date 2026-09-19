@@ -1,9 +1,16 @@
-import { access } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { expect, test, type FrameLocator } from '@playwright/test';
 
 import { composeDown, installDependencies } from '../../helpers/app.js';
+import {
+  listedRuns,
+  openRunTab,
+  runRow,
+  startStack,
+  startedRun,
+} from '../../helpers/runs.js';
 import {
   discardExtensionProject,
   driveVsCode,
@@ -23,11 +30,11 @@ import {
  *
  * Everything here goes through the surfaces a person
  * uses — the block on the run's own picture, the
- * button under it, and the modal the editor draws to
- * confirm. The modal is workbench chrome rather than
- * anything a webview owns, which is why the helper
- * that answers it reads the box's words rather than
- * looking for a mark this suite chose.
+ * Inspector beside it, and the modal the editor
+ * draws to confirm. The modal is workbench chrome
+ * rather than anything a webview owns, which is why
+ * the helper that answers it reads the box's words
+ * rather than looking for a mark this suite chose.
  *
  * What the fork inherits is deliberately not
  * asserted here. `two-blocks` records exactly one
@@ -37,12 +44,37 @@ import {
  * claim this file can honestly make is that the
  * fork ran the step again, finished, and knows which
  * run it came out of.
+ *
+ * With two runs on the ledger, the rest is about
+ * the Inspector beside a run's tab: reaching the
+ * replay with the keyboard alone, the pane coming
+ * back when a run is opened, the run input as it is
+ * typed, and an edit made from the run's tab. Each
+ * of those finds its own frames and opens its own
+ * run rather than trusting the one before.
  */
+type Workflow = {
+  nodes: { id: string; title?: string; retry?: { maxAttempts?: number } }[];
+};
+
 test.describe('a replay, from a run that finished', () => {
   const NAME = 'replay-journey';
   const WORKFLOW = 'two_blocks';
   const BLOCK = 'answer_it';
   const QUESTION = 'what does a fork keep';
+  const TRIGGER = 'started_by_hand';
+  const FILE = `${WORKFLOW}.workflow.json`;
+  const RENAMED = 'Answer the enquiry';
+
+  /** Typed into the Runs view's box, and nowhere
+   *  else: unique to this run of the file, so
+   *  finding it anywhere is finding it copied. */
+  const MARK = `e2e-${Date.now()}`;
+  const SENTINEL = JSON.stringify({ sentinel: MARK });
+
+  const kind = '[data-inspector-header] [data-inspector-kind]';
+  const runState = '[data-inspector-header] [data-run-state]';
+  const title = '[data-field="title"] input';
 
   let project: string;
   let vscode: DrivenVsCode;
@@ -52,6 +84,15 @@ test.describe('a replay, from a run that finished', () => {
   /** The run the fork came out of, and the fork. */
   let parentId = '';
   let forkId = '';
+
+  const document = (): string => join(project, '.mboss', 'workflows', FILE);
+
+  /** The Runs view, shown and found afresh. */
+  const openRuns = async (): Promise<FrameLocator> => {
+    await vscode.runCommand('mBoss: Open Runs');
+
+    return vscode.webview('runs');
+  };
 
   test.beforeAll(async () => {
     test.setTimeout(900_000);
@@ -72,8 +113,7 @@ test.describe('a replay, from a run that finished', () => {
       );
     }).toPass({ timeout: 60_000 });
 
-    await vscode.runCommand('mBoss: Open Runs');
-    runs = await vscode.webview('runs');
+    runs = await openRuns();
   });
 
   test.afterAll(async () => {
@@ -85,57 +125,57 @@ test.describe('a replay, from a run that finished', () => {
     }
   });
 
-  test('Start Local Stack brings the project up', async () => {
+  test('Start app brings the project up', async () => {
     test.setTimeout(900_000);
 
-    await runs.locator('[data-stack-toggle]').click();
-
-    for (const service of ['postgres', 'app']) {
-      await expect(
-        runs.locator(`[data-zone="stack"] [data-service="${service}"]`),
-        `${service} should be running`,
-      ).toHaveAttribute('data-state', 'running', { timeout: 900_000 });
-    }
+    await startStack(runs, ['postgres', 'app'], { timeout: 900_000 });
   });
 
   test(`runs ${WORKFLOW} and the run reaches done`, async () => {
     test.setTimeout(600_000);
 
-    const picker = runs.locator('[data-workflow-picker]');
+    const start = runs.locator('[data-run-workflow]');
 
-    await expect(picker.locator(`option[value="${WORKFLOW}"]`)).toHaveCount(1);
-    await picker.selectOption(WORKFLOW);
+    // One saved workflow, so nothing to pick: the
+    // row's name below says which one Run meant.
+    await expect(start).toBeVisible();
+    await expect(runs.locator('[data-workflow-picker]')).toHaveCount(0);
 
     await runs
       .locator('[data-input]')
       .fill(`{ "question": ${JSON.stringify(QUESTION)} }`);
-    await runs.locator('[data-run-workflow]').click();
 
-    const live = runs.locator('[data-zone="running-now"]');
+    const before = await listedRuns(runs);
 
-    await expect(live.locator('.run-line')).toHaveAttribute(
-      'data-outcome',
-      'done',
-      { timeout: 300_000 },
-    );
+    await start.click();
 
-    parentId = (await live.locator('.run-id').innerText()).trim();
-    expect(parentId, 'the panel drew a run with no id').not.toBe('');
+    parentId = await startedRun(runs, before);
+
+    const row = runRow(runs, parentId);
+
+    await expect(row).toHaveAttribute('data-outcome', 'done', {
+      timeout: 300_000,
+    });
+    await expect(row.locator('.run-name')).toHaveText(WORKFLOW);
   });
 
   /**
    * Picking the block, on the run's own picture.
    *
-   * The button under it is refused until something
-   * is picked, and picking a block picks the first
-   * row that block wrote — which is what makes "from
-   * here" mean a point in the run rather than a
-   * whole run over again.
+   * The Inspector beside the run then reads that
+   * block, and offers the replay from it. A block
+   * picked with no row of its own picked stands for
+   * the block's own default row, which is what makes
+   * "from here" mean a point in the run rather than
+   * a whole run over again.
+   *
+   * The offer is looked for on the block's card and
+   * nowhere else: the whole run's card, which the
+   * Inspector shows while nothing is picked, has a
+   * replay of its own, from the start.
    */
   test('the run page offers a replay from the block that ran', async () => {
-    await runs
-      .locator(`[data-session-row="${parentId}"] [data-open-run]`)
-      .click();
+    await openRunTab(runs, parentId);
 
     see = await vscode.webview('see');
 
@@ -144,26 +184,40 @@ test.describe('a replay, from a run that finished', () => {
     await see.locator('[data-see-tab="graph"]').click();
     await see.locator(`[data-run-node="${BLOCK}"]`).click();
 
-    await expect(see.locator('[data-replay]')).toBeEnabled();
+    const inspector = await vscode.inspector();
+
+    await expect(inspector.locator(kind)).toHaveText('step');
+    await expect(
+      inspector.locator(
+        '[data-evidence="block"] [data-evidence-action="replayFrom"]',
+      ),
+    ).toBeEnabled();
   });
 
   /**
    * The confirmation, and what comes out of it.
    *
    * The fork is found by elimination rather than by
-   * reading an id off the panel: the session zone is
-   * this window's own memory of what it started, so
-   * a second row in it after one click is the run
+   * reading an id off a page: the list is the
+   * project's own ledger, nothing else in this
+   * window starts runs, so the one id it shows after
+   * the click that it did not show before is the run
    * that click made, whatever it is called.
    */
   test('replaying forks a second run that finishes', async () => {
     test.setTimeout(600_000);
 
-    const rows = runs.locator('[data-zone="session"] [data-session-row]');
+    runs = await vscode.webview('runs');
 
-    await expect(rows).toHaveCount(1);
+    const before = await listedRuns(runs);
 
-    await see.locator('[data-replay]').click();
+    expect(before).toEqual([parentId]);
+
+    await (
+      await vscode.inspector()
+    )
+      .locator('[data-evidence="block"] [data-evidence-action="replayFrom"]')
+      .click();
 
     const said = await vscode.answerDialog('Replay');
 
@@ -175,29 +229,40 @@ test.describe('a replay, from a run that finished', () => {
       "nothing — this is the run's first durable operation",
     );
 
-    await expect(rows).toHaveCount(2);
+    runs = await vscode.webview('runs');
 
-    const ids = await rows.evaluateAll((nodes) =>
-      nodes.map((node) => node.getAttribute('data-session-row') ?? ''),
-    );
+    await expect
+      .poll(
+        async () => {
+          const now = await listedRuns(runs);
 
-    forkId = ids.find((id) => id !== parentId) ?? '';
-    expect(forkId, 'the panel logged no second run').not.toBe('');
+          return now.filter((id) => !before.includes(id));
+        },
+        { message: 'the list showed no second run' },
+      )
+      .toHaveLength(1);
 
-    await expect(
-      runs.locator(`[data-session-row="${forkId}"]`),
-    ).toHaveAttribute('data-outcome', 'done', { timeout: 300_000 });
+    forkId = (await listedRuns(runs)).find((id) => id !== parentId) ?? '';
+    expect(forkId, 'the list showed no second run').not.toBe('');
+
+    await expect(runRow(runs, forkId)).toHaveAttribute('data-outcome', 'done', {
+      timeout: 300_000,
+    });
   });
 
   /**
-   * Which run this one came out of, said on the page
-   * about it.
+   * Which run this one came out of, said beside the
+   * run's own tab.
    *
-   * The lineage is drawn from the column the fork
-   * itself carries, so the parent's line being there
-   * is the proof that the fork was recorded as a
-   * replay of it and not as an unrelated second run
-   * that happens to have finished.
+   * With the fork's tab open and nothing picked on
+   * it, the Inspector is about the whole run. Its
+   * lineage is drawn from the column the fork itself
+   * carries, so the parent's line being there is the
+   * proof that the fork was recorded as a replay of
+   * it and not as an unrelated second run that
+   * happens to have finished. The run the card is
+   * about is not one of its lines; the header names
+   * it, by its short id.
    *
    * The step is asserted to have run rather than to
    * have been carried over. A run of one step forked
@@ -205,25 +270,331 @@ test.describe('a replay, from a run that finished', () => {
    * every row in the fork is a row the fork ran.
    */
   test('the fork names the run it came out of', async () => {
-    await runs
-      .locator(`[data-session-row="${forkId}"] [data-open-run]`)
-      .click();
+    await openRunTab(runs, forkId);
 
     await expect(see.locator(`.see[data-run="${forkId}"]`)).toBeVisible();
 
-    const lineage = see.locator('[data-lineage]');
+    const inspector = await vscode.inspector();
 
     await expect(
-      lineage.locator(`[data-lineage-run="${parentId}"]`),
+      inspector.locator(`[data-inspector-header] [data-short-run="${forkId}"]`),
     ).toBeVisible();
     await expect(
-      lineage.locator(`[data-lineage-run="${forkId}"]`),
-    ).toHaveAttribute('aria-current', 'true');
+      inspector.locator(`[data-lineage] [data-lineage-run="${parentId}"]`),
+    ).toBeVisible();
 
     await see.locator('[data-see-tab="trace"]').click();
 
     await expect(
       see.locator(`[data-trace-group="${BLOCK}"] [data-trace-op]`).first(),
     ).toHaveAttribute('data-reuse', 'own');
+  });
+
+  /**
+   * The replay, reached from the keyboard alone.
+   *
+   * A row on the Trace tab is a control: Enter on
+   * it picks the operation, and with it the block
+   * that wrote it. The view's own focus command,
+   * asked for from the palette by the keyboard,
+   * then puts the keyboard in the Inspector, and
+   * Tab walks it to the replay on that block's
+   * card. The walk is bounded by the number of
+   * places the Inspector's page can stop at, so a
+   * card that left the replay out of the order
+   * fails here rather than walking for ever.
+   *
+   * The palette is opened with its key rather than
+   * through `runCommand()`. That one parks on the
+   * Explorer first, which takes the mBoss views off
+   * screen, and the editor drops the keyboard when
+   * it focuses a view whose page is still being
+   * drawn again — the Runs view's own focus command
+   * does the same from there. Here the views are on
+   * screen, as they are while a run's tab is open.
+   */
+  test('the replay is reached from the keyboard alone', async () => {
+    runs = await openRuns();
+
+    await openRunTab(runs, parentId);
+
+    see = await vscode.webview('see');
+
+    await expect(see.locator(`.see[data-run="${parentId}"]`)).toBeVisible();
+
+    const trace = see.locator('[data-see-tab="trace"]');
+
+    await trace.focus();
+    await trace.press('Enter');
+
+    const op = see
+      .locator(`[data-trace-group="${BLOCK}"] [data-trace-op]`)
+      .first();
+    const functionId = await op.getAttribute('data-trace-op');
+
+    await op.focus();
+    await op.press('Enter');
+
+    await expect(op).toHaveAttribute('aria-current', 'true');
+
+    await vscode.runCommandWithKeyboard('mBoss: Focus on Inspector View');
+
+    await expect.poll(() => vscode.webviewHasFocus('inspector')).toBe(true);
+
+    const inspector = await vscode.webview('inspector');
+    const replay = inspector.locator(
+      '[data-evidence="block"] [data-evidence-action="replayFrom"]',
+    );
+
+    // The row, not only the block: the head names
+    // the operation Enter picked.
+    await expect(
+      inspector.locator(
+        `[data-inspector-header] [data-function-id="${functionId}"]`,
+      ),
+    ).toBeVisible();
+    await expect(replay).toBeVisible();
+
+    const stops = await inspector
+      .locator('body')
+      .evaluate(
+        (body) =>
+          body.querySelectorAll(
+            'a[href], button, input, select, textarea, [tabindex]',
+          ).length,
+      );
+
+    expect(stops, 'the Inspector drew nothing to stop at').toBeGreaterThan(0);
+
+    // On the replay, and in the page that has the
+    // keyboard: a page keeps its last focused
+    // element after the keyboard has left it.
+    const focused = (): Promise<boolean> =>
+      replay.evaluate(
+        (button) =>
+          button === button.ownerDocument.activeElement &&
+          button.ownerDocument.hasFocus(),
+      );
+
+    let presses = 0;
+
+    while (!(await focused()) && presses <= stops) {
+      await vscode.page.keyboard.press('Tab');
+      presses += 1;
+    }
+
+    test.info().annotations.push({
+      type: 'Tab presses',
+      description: `${presses} of at most ${stops + 1}`,
+    });
+
+    expect(await focused(), 'Tab never reached the replay').toBe(true);
+  });
+
+  /**
+   * A run opened brings back the Inspector somebody
+   * folded away.
+   *
+   * The run's whole card is what there is to read
+   * about a run nobody has picked anything on yet,
+   * so a run the tab had not been showing puts the
+   * Inspector back on screen, open under its header,
+   * with no focus command run by anybody. Twice,
+   * because the second fold is what says the first
+   * reveal was not the view being drawn for the
+   * first time.
+   */
+  test('a run opened unfolds the Inspector it is read in', async () => {
+    runs = await openRuns();
+
+    // The fork on the tab first, so the parent is
+    // a run the tab had not been showing.
+    await openRunTab(runs, forkId);
+    await expect.poll(() => vscode.showsWebview('inspector')).toBe(true);
+
+    for (const id of [parentId, forkId]) {
+      await vscode.collapseView('Inspector');
+      await expect.poll(() => vscode.showsWebview('inspector')).toBe(false);
+
+      await openRunTab(runs, id);
+
+      await expect.poll(() => vscode.showsWebview('inspector')).toBe(true);
+      await expect(vscode.activeEditorTab()).toContainText(id);
+
+      const inspector = await vscode.webview('inspector');
+
+      await expect(inspector.locator('[data-evidence="run"]')).toBeVisible();
+      await expect(
+        inspector.locator(`[data-inspector-header] [data-short-run="${id}"]`),
+      ).toBeVisible();
+    }
+  });
+
+  /**
+   * What a run will be started with, on the trigger,
+   * as it is typed.
+   *
+   * The Runs view's box is the one place a run's
+   * input is typed, and the trigger's card reads it
+   * rather than keeping a copy: what is in the box
+   * is on the card with nothing saved and nothing
+   * refreshed in between. Nor does it go near the
+   * document — the workflow file never has it.
+   */
+  test("the trigger's card shows the run input as it is typed", async () => {
+    await vscode.openFile(FILE);
+
+    const canvas = await vscode.webview('canvas');
+    const trigger = canvas.locator(`.react-flow__node[data-id="${TRIGGER}"]`);
+
+    await expect(trigger).toBeVisible();
+
+    // Opening the file took the side bar to the
+    // Explorer, and the box is in the Runs view.
+    runs = await openRuns();
+
+    await runs.locator('[data-input]').fill(SENTINEL);
+
+    await trigger.click();
+
+    const inspector = await vscode.inspector();
+
+    await expect(inspector.locator(kind)).toHaveText('trigger');
+
+    await inspector.locator('[data-inspector-tab="configure"]').click();
+
+    await expect(
+      inspector.locator('[data-run-sample] [data-recorded]'),
+    ).toContainText(MARK);
+
+    expect(await readFile(document(), 'utf8')).not.toContain(MARK);
+  });
+
+  /**
+   * An edit made from the run's tab, to a document
+   * nobody has open.
+   *
+   * The edit goes through a canvas, because the
+   * canvas is where an edit is checked and written,
+   * so one opens beside the run without taking the
+   * front from it. The run's tab stays in front, and
+   * the Inspector stays about the block as it was
+   * picked on the run: the run's state at its head,
+   * on the face somebody chose there.
+   *
+   * The face is what tells the two apart. A canvas
+   * follows the run this window last started, the
+   * fork, so the same block picked on it carries a
+   * run's state at its head too; but a canvas opens
+   * a followed block on what the run recorded until
+   * somebody picks otherwise there. So the block is
+   * picked on the canvas once, to see that face,
+   * before the run's tab is brought back.
+   *
+   * The edits land in the canvas' buffer, and saving
+   * the run's tab would save nothing, since it holds
+   * no document. Save All writes the canvas beside
+   * it: both edits are then in the file, and the
+   * run input typed into the Runs view is not.
+   */
+  test('an edit from the run tab opens the canvas beside it', async () => {
+    await vscode.runCommand('View: Close All Editors');
+    await expect(vscode.editorTab(FILE)).toHaveCount(0);
+
+    runs = await openRuns();
+
+    await openRunTab(runs, parentId);
+
+    see = await vscode.webview('see');
+
+    await expect(see.locator(`.see[data-run="${parentId}"]`)).toBeVisible();
+
+    await see.locator('[data-see-tab="graph"]').click();
+    await see.locator(`[data-run-node="${BLOCK}"]`).click();
+
+    let inspector = await vscode.inspector();
+
+    await expect(inspector.locator(kind)).toHaveText('step');
+    await expect(inspector.locator(runState)).toBeVisible();
+
+    await inspector.locator('[data-inspector-tab="configure"]').click();
+    await inspector.locator(title).fill(RENAMED);
+    await inspector.locator(title).press('Enter');
+
+    await expect(vscode.editorTab(FILE)).toHaveCount(1);
+
+    const canvas = await vscode.webview('canvas');
+    const block = canvas.locator(`.react-flow__node[data-id="${BLOCK}"]`);
+
+    // Read off the canvas, which draws the buffer:
+    // the edit has landed once this holds.
+    await expect(block.locator('.node-title')).toHaveText(RENAMED);
+
+    await expect(vscode.activeEditorTab()).toContainText(parentId);
+
+    const configure = '[data-inspector-tab="configure"]';
+    const evidence = '[data-inspector-tab="evidence"]';
+
+    inspector = await vscode.inspector();
+
+    await expect(inspector.locator(kind)).toHaveText('step');
+    await expect(inspector.locator(title)).toHaveValue(RENAMED);
+    await expect(inspector.locator(runState)).toBeVisible();
+    await expect(inspector.locator(configure)).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+
+    // The same block, picked on the canvas instead.
+    await vscode.editorTab(FILE).click();
+    await block.click();
+
+    inspector = await vscode.inspector();
+
+    await expect(inspector.locator(title)).toHaveValue(RENAMED);
+    await expect(inspector.locator(evidence)).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+
+    // Back to the run's tab, whose pick and face
+    // the Inspector takes up again, for the second
+    // edit.
+    await vscode.editorTabTitled(parentId).click();
+    await expect(vscode.activeEditorTab()).toContainText(parentId);
+
+    inspector = await vscode.inspector();
+
+    await expect(inspector.locator(configure)).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(inspector.locator(runState)).toBeVisible();
+
+    const tries = inspector.locator('[data-field="retryMaxAttempts"] input');
+
+    await tries.fill('5');
+    await tries.press('Enter');
+
+    // Nothing has been written yet: both edits are
+    // in the buffer the canvas holds.
+    const unsaved = JSON.parse(await readFile(document(), 'utf8')) as Workflow;
+
+    expect(unsaved.nodes.find((one) => one.id === BLOCK)?.title).not.toBe(
+      RENAMED,
+    );
+
+    await vscode.runCommand('File: Save All');
+
+    await expect(async () => {
+      const text = await readFile(document(), 'utf8');
+      const node = (JSON.parse(text) as Workflow).nodes.find(
+        (one) => one.id === BLOCK,
+      );
+
+      expect(node?.title).toBe(RENAMED);
+      expect(node?.retry?.maxAttempts).toBe(5);
+      expect(text).not.toContain(MARK);
+    }).toPass({ timeout: 60_000 });
   });
 });

@@ -509,6 +509,31 @@ worker that has failed a test is thrown away and the next test starts a new
 one, which here would mean a second scaffold, a second install and a second
 stack, all to run a step whose subject never happened.
 
+`replay-journey.spec.ts` forks a finished run from its one step, through the
+replay on the block's card in the Inspector beside the run's tab, and then, with
+the two runs on the ledger, holds the Inspector to what it does beside a run's
+tab. The replay is reached from the keyboard alone: Enter on the step's row on
+the Trace tab, the view's own focus command from the palette, then Tab. A run
+opened brings the Inspector back after somebody folded it away, with no focus
+command run by anybody. The trigger's card shows what is typed into the Runs
+view's box as it is typed, and the file never has it. And an edit made from the
+run's tab opens the canvas beside it without taking the front, and Save All is
+what writes it, since the run's tab holds no document to save.
+
+The keyboard leg opens the palette with its own key, through
+`runCommandWithKeyboard()`, rather than through `runCommand()`. That one parks
+on the Explorer first, which takes the mBoss views off screen, and the editor
+drops the keyboard on the window when it is asked to focus a view whose page is
+still being drawn again — the Runs view's own focus command does the same from
+the Explorer. A leg run through it would be measuring the park rather than the
+Inspector. Folding a view is animated, so `collapseView()` returns only once the
+views beside it have stopped growing into the room.
+
+`fix-replay-journey.spec.ts` fails a run, rewrites the handler that threw
+straight on disk, and asks for the replay the same way; the box then offers to
+rebuild first, and the fork carries the step before the boundary over, marked
+reused, and runs the mended one new.
+
 ## Scaffolding, across a process boundary
 
 `scaffolder/scaffold-project.mjs` is how the durability spec gets a real

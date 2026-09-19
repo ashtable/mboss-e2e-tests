@@ -5,6 +5,13 @@ import { expect, test, type FrameLocator } from '@playwright/test';
 
 import { composeDown, installDependencies } from '../../helpers/app.js';
 import {
+  listedRuns,
+  openRunTab,
+  runRow,
+  startStack,
+  startedRun,
+} from '../../helpers/runs.js';
+import {
   discardExtensionProject,
   driveVsCode,
   extensionProject,
@@ -96,17 +103,10 @@ test.describe('a failure, a fix, and a replay over it', () => {
     }
   });
 
-  test('Start Local Stack brings the project up', async () => {
+  test('Start app brings the project up', async () => {
     test.setTimeout(900_000);
 
-    await runs.locator('[data-stack-toggle]').click();
-
-    for (const service of ['postgres', 'app']) {
-      await expect(
-        runs.locator(`[data-zone="stack"] [data-service="${service}"]`),
-        `${service} should be running`,
-      ).toHaveAttribute('data-state', 'running', { timeout: 900_000 });
-    }
+    await startStack(runs, ['postgres', 'app'], { timeout: 900_000 });
   });
 
   /**
@@ -120,24 +120,27 @@ test.describe('a failure, a fix, and a replay over it', () => {
   test(`runs ${WORKFLOW} and the run fails`, async () => {
     test.setTimeout(600_000);
 
-    const picker = runs.locator('[data-workflow-picker]');
+    const start = runs.locator('[data-run-workflow]');
 
-    await expect(picker.locator(`option[value="${WORKFLOW}"]`)).toHaveCount(1);
-    await picker.selectOption(WORKFLOW);
+    // One saved workflow, so nothing to pick: the
+    // row's name below says which one Run meant.
+    await expect(start).toBeVisible();
+    await expect(runs.locator('[data-workflow-picker]')).toHaveCount(0);
 
     await runs.locator('[data-input]').fill('{ "fail": true }');
-    await runs.locator('[data-run-workflow]').click();
 
-    const live = runs.locator('[data-zone="running-now"]');
+    const before = await listedRuns(runs);
 
-    await expect(live.locator('.run-line')).toHaveAttribute(
-      'data-outcome',
-      'failed',
-      { timeout: 300_000 },
-    );
+    await start.click();
 
-    runId = (await live.locator('.run-id').innerText()).trim();
-    expect(runId, 'the panel drew a run with no id').not.toBe('');
+    runId = await startedRun(runs, before);
+
+    const row = runRow(runs, runId);
+
+    await expect(row).toHaveAttribute('data-outcome', 'failed', {
+      timeout: 300_000,
+    });
+    await expect(row.locator('.run-name')).toHaveText(WORKFLOW);
   });
 
   /**
@@ -162,6 +165,11 @@ test.describe('a failure, a fix, and a replay over it', () => {
    * handler here would be asserting that codegen had
    * not run, which is the opposite of what should
    * happen.
+   *
+   * The replay is asked for where a person asks for
+   * it: the block picked on the run's picture, and
+   * the replay on that block's card in the
+   * Inspector beside the run.
    */
   test('the replay refuses to run an image older than the fix', async () => {
     // A rebuild is a docker build, and the fork is
@@ -176,7 +184,7 @@ test.describe('a failure, a fix, and a replay over it', () => {
     );
     await writeFile(handler, before.replace(REFUSES, SETTLES));
 
-    await runs.locator(`[data-session-row="${runId}"] [data-open-run]`).click();
+    await openRunTab(runs, runId);
 
     see = await vscode.webview('see');
 
@@ -184,7 +192,16 @@ test.describe('a failure, a fix, and a replay over it', () => {
 
     await see.locator('[data-see-tab="graph"]').click();
     await see.locator(`[data-run-node="${BLOCK}"]`).click();
-    await see.locator('[data-replay]').click();
+
+    const listed = await listedRuns(runs);
+
+    expect(listed).toEqual([runId]);
+
+    await (
+      await vscode.inspector()
+    )
+      .locator('[data-evidence="block"] [data-evidence-action="replayFrom"]')
+      .click();
 
     const said = await vscode.answerDialog('Rebuild and replay');
 
@@ -192,16 +209,24 @@ test.describe('a failure, a fix, and a replay over it', () => {
       /The running app was built before your change to \S+\.ts\./,
     );
 
-    const rows = runs.locator('[data-zone="session"] [data-session-row]');
+    // The fork is the one id the ledger shows that
+    // it did not before, once the rebuilt app is up
+    // and has started it.
+    runs = await vscode.webview('runs');
 
-    await expect(rows).toHaveCount(2, { timeout: 900_000 });
+    await expect
+      .poll(
+        async () => {
+          const now = await listedRuns(runs);
 
-    const ids = await rows.evaluateAll((nodes) =>
-      nodes.map((node) => node.getAttribute('data-session-row') ?? ''),
-    );
+          return now.filter((id) => !listed.includes(id));
+        },
+        { message: 'the list showed no second run', timeout: 900_000 },
+      )
+      .toHaveLength(1);
 
-    forkId = ids.find((id) => id !== runId) ?? '';
-    expect(forkId, 'the panel logged no second run').not.toBe('');
+    forkId = (await listedRuns(runs)).find((id) => id !== runId) ?? '';
+    expect(forkId, 'the list showed no second run').not.toBe('');
   });
 
   /**
@@ -221,36 +246,40 @@ test.describe('a failure, a fix, and a replay over it', () => {
    * replay started from ran new. Only the pair of
    * them says this was a replay rather than a
    * second run of the same thing.
+   *
+   * Which run it came out of is read beside the
+   * fork's tab, on the Inspector's card about the
+   * whole run, since nothing is picked on it.
    */
   test('the fork runs the mended step and finishes', async () => {
     test.setTimeout(600_000);
 
-    await expect(
-      runs.locator(`[data-session-row="${forkId}"]`),
-    ).toHaveAttribute('data-outcome', 'done', { timeout: 300_000 });
+    await expect(runRow(runs, forkId)).toHaveAttribute('data-outcome', 'done', {
+      timeout: 300_000,
+    });
 
-    await runs
-      .locator(`[data-session-row="${forkId}"] [data-open-run]`)
-      .click();
+    await openRunTab(runs, forkId);
 
     await expect(see.locator(`.see[data-run="${forkId}"]`)).toBeVisible();
 
     await expect(
-      see.locator(`[data-lineage] [data-lineage-run="${runId}"]`),
+      (await vscode.inspector()).locator(
+        `[data-lineage] [data-lineage-run="${runId}"]`,
+      ),
     ).toBeVisible();
 
     await see.locator('[data-see-tab="trace"]').click();
 
-    // Claimed on the row rather than on a
-    // `.provenance` span: a row can carry two of
-    // those, and which one is first is not the
-    // point being made here.
+    // Claimed on the row rather than on the words
+    // alone: the row's own mark says where its
+    // result came from, and the line under its name
+    // says in a word that it was reused.
     const carried = see
       .locator(`[data-trace-group="${CARRIED}"] [data-trace-op]`)
       .first();
 
     await expect(carried).toHaveAttribute('data-reuse', 'recorded');
-    await expect(carried).toContainText('↺ recorded');
+    await expect(carried).toContainText('reused ·');
 
     const op = see
       .locator(`[data-trace-group="${BLOCK}"] [data-trace-op]`)
