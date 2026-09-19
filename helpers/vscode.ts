@@ -178,7 +178,13 @@ export type DrivenVsCode = {
   page: Page;
 
   /** The named webview's content frame, once it has
-   *  rendered. */
+   *  rendered, for as long as that page lives.
+   *
+   *  A view the side bar stops showing loses its
+   *  page and comes back in a new one, so a frame
+   *  kept across a command can outlive it. A
+   *  canvas in front keeps its page whatever the
+   *  side bar does. */
   webview(name: WebviewName): Promise<FrameLocator>;
 
   /** Whether it is on screen right now, asked once
@@ -210,6 +216,29 @@ export type DrivenVsCode = {
    *  a spec that changed something and then read
    *  the file would be reading what it opened. */
   save(): Promise<void>;
+
+  /** Writes the open document to disk with the
+   *  editor's own shortcut, from wherever the
+   *  keyboard is.
+   *
+   *  Nothing is parked first, so the side bar
+   *  keeps what it was showing and a view on screen
+   *  before the save is the same page after it. A
+   *  spec whose point is what that page does when
+   *  the file is saved needs this rather than
+   *  `save()`, whose palette would take the page
+   *  away and draw a new one. */
+  saveWithKeyboard(): Promise<void>;
+
+  /** Whether the side bar is showing the Explorer's
+   *  file tree right now, asked once. */
+  showsExplorer(): Promise<boolean>;
+
+  /** Whether the keyboard is anywhere in the side
+   *  bar right now: on one of its own controls, or
+   *  in a page one of the extension's views draws
+   *  there. */
+  sideBarHasFocus(): Promise<boolean>;
 
   /** Opens a project file in whichever editor
    *  claims it. */
@@ -353,6 +382,9 @@ export async function driveVsCode(
     },
     runCommand: (title) => runCommand(page, title),
     save: () => runCommand(page, 'File: Save'),
+    saveWithKeyboard: () => page.keyboard.press('ControlOrMeta+s'),
+    showsExplorer: () => page.locator('.explorer-folders-view').isVisible(),
+    sideBarHasFocus: () => sideBarHasFocus(page),
     openFile: (relative) => openFile(page, relative),
     editorTab: (name) => editorTab(page, name),
     problems: () => problems(page),
@@ -677,33 +709,102 @@ async function webviewFrame(
  * and not a contract. Asking whether it is visible
  * answers the question a person would ask either
  * way.
+ *
+ * The frame handed back is held to that one page
+ * by the name its outer iframe carries, not by
+ * where it sits among the others. The side bar's
+ * views drop their pages whenever a command hides
+ * them, so a frame found by its place would slide
+ * on to a neighbour, or on to nothing, while the
+ * canvas it was found for is still on screen.
  */
 async function showingWebview(
   page: Page,
   name: WebviewName,
 ): Promise<FrameLocator | undefined> {
+  const id = await showingHost(page, name);
+
+  return id === undefined ? undefined : pageIn(hostNamed(page, id));
+}
+
+/** The name the workbench gave the outer iframe
+ *  of that webview, if it is on screen now. */
+async function showingHost(
+  page: Page,
+  name: WebviewName,
+): Promise<string | undefined> {
   const marker = `script[src$="/webview/${name}.js"]`;
   const outer = page.locator('iframe.webview');
 
   for (let at = 0; at < (await outer.count()); at += 1) {
     const host = outer.nth(at);
-    const frame = host.contentFrame().locator('iframe').contentFrame();
 
     // A frame detaches while it is being read
     // whenever the editor re-lays the view out.
     // That is not a failure; it is the next
     // pass's problem.
-    const found = await frame
+    const found = await pageIn(host)
       .locator(marker)
       .count()
       .catch(() => 0);
 
-    if (found > 0 && (await host.isVisible().catch(() => false))) {
-      return frame;
+    if (found === 0 || !(await host.isVisible().catch(() => false))) {
+      continue;
     }
+
+    const id = await host.getAttribute('name').catch(() => null);
+
+    if (id !== null && id !== '') return id;
   }
 
   return undefined;
+}
+
+function hostNamed(page: Page, id: string): Locator {
+  return page.locator(`iframe.webview[name="${id}"]`);
+}
+
+/** The extension's views that sit in the side bar
+ *  rather than in the editor area. */
+const SIDE_BAR_VIEWS: readonly WebviewName[] = ['sidebar', 'runs', 'inspector'];
+
+/**
+ * Whether the keyboard is anywhere in the side
+ * bar.
+ *
+ * Asked of the workbench's own focused element,
+ * which is a webview's outer iframe whenever that
+ * webview has the keyboard. The side bar's webviews
+ * are hoisted out of it into the overlay layer, so
+ * they are told apart by name rather than by where
+ * they sit in the DOM.
+ */
+async function sideBarHasFocus(page: Page): Promise<boolean> {
+  const hosts: string[] = [];
+
+  for (const name of SIDE_BAR_VIEWS) {
+    const id = await showingHost(page, name);
+
+    if (id !== undefined) hosts.push(id);
+  }
+
+  return page.evaluate((ids) => {
+    const focused = document.activeElement;
+
+    if (focused === null) return false;
+    if (focused.closest('.part.sidebar') !== null) return true;
+
+    return (
+      focused.tagName === 'IFRAME' &&
+      ids.includes(focused.getAttribute('name') ?? '')
+    );
+  }, hosts);
+}
+
+/** The extension's page, two iframes down from
+ *  the one the workbench holds. */
+function pageIn(host: Locator): FrameLocator {
+  return host.contentFrame().locator('iframe').contentFrame();
 }
 
 /**

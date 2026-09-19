@@ -1,7 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { expect, test, type FrameLocator } from '@playwright/test';
+import {
+  expect,
+  test,
+  type FrameLocator,
+  type Locator,
+} from '@playwright/test';
 
 import {
   discardExtensionProject,
@@ -63,17 +68,36 @@ test.describe('a handler that dials out', () => {
   let vscode: DrivenVsCode;
   let canvas: FrameLocator;
 
-  const row = (fn: string) => canvas.locator(`[data-picker-fn="${fn}"]`);
-  const hidden = () => canvas.locator('[data-picker-hidden]');
+  /** The picker is in the Inspector, a view of its
+   *  own beside the canvas, so every read of the
+   *  picker finds that view's page first. */
+  const inInspector = async (selector: string): Promise<Locator> =>
+    (await vscode.inspector()).locator(selector);
 
-  /** Selects a block, and waits for the column
-   *  beside the graph to be showing that one. */
-  const select = async (id: string, heading: string): Promise<void> => {
+  const row = (fn: string) => inInspector(`[data-picker-fn="${fn}"]`);
+  const hidden = () => inInspector('[data-picker-hidden]');
+
+  /** Selects a block, and waits for the Inspector to
+   *  be naming that one's kind. */
+  const select = async (id: string, kind: string): Promise<void> => {
     await canvas.locator(`.react-flow__node[data-id="${id}"]`).click();
 
-    await expect(canvas.locator('[data-inspector-heading]')).toHaveText(
-      heading,
-    );
+    await expect(
+      await inInspector('[data-inspector-header] [data-inspector-kind]'),
+    ).toHaveText(kind);
+  };
+
+  /** Opens the list of functions. The block's own
+   *  function heads the picker, and pressing it
+   *  opens the list or shuts it again; a list left
+   *  open stays open for the same block, so it is
+   *  pressed only when nothing is listed. */
+  const open = async (): Promise<void> => {
+    if ((await (await row(LOCAL)).count()) === 0) {
+      await (await inInspector('[data-picker-current]')).click();
+    }
+
+    await expect(await row(LOCAL)).toBeVisible();
   };
 
   /** Opens the drawer the put-away rows are behind.
@@ -82,9 +106,11 @@ test.describe('a handler that dials out', () => {
    *  it unasked would shut what the test before had
    *  opened. */
   const reveal = async (): Promise<void> => {
-    if ((await row(DIALS_OUT).count()) === 0) await hidden().click();
+    if ((await (await row(DIALS_OUT)).count()) === 0) {
+      await (await hidden()).click();
+    }
 
-    await expect(row(DIALS_OUT)).toBeVisible();
+    await expect(await row(DIALS_OUT)).toBeVisible();
   };
 
   /** Where a handler's one outward call is, as the
@@ -133,26 +159,28 @@ test.describe('a handler that dials out', () => {
    * the next test for the wrong reason.
    */
   test('the step that runs it offers it, with nothing put away', async () => {
-    await select('charge_card', 'Node inspector · Step');
+    await select('charge_card', 'step');
+    await open();
 
-    await expect(row(DIALS_OUT)).toBeVisible();
-    await expect(row(BUILDS_AND_DIALS)).toBeVisible();
-    await expect(row(LOCAL)).toBeVisible();
-    await expect(hidden()).toHaveCount(0);
+    await expect(await row(DIALS_OUT)).toBeVisible();
+    await expect(await row(BUILDS_AND_DIALS)).toBeVisible();
+    await expect(await row(LOCAL)).toBeVisible();
+    await expect(await hidden()).toHaveCount(0);
   });
 
   test('a transaction puts it away, and says why', async () => {
-    await select('record_payment', 'Node inspector · Transaction');
+    await select('record_payment', 'transaction');
+    await open();
 
     // Its neighbour is still offered: what the
     // transaction refuses is this function, not
     // every function.
-    await expect(row(LOCAL)).toBeVisible();
-    await expect(row(DIALS_OUT)).toHaveCount(0);
+    await expect(await row(LOCAL)).toBeVisible();
+    await expect(await row(DIALS_OUT)).toHaveCount(0);
 
     await reveal();
 
-    await expect(row(DIALS_OUT).locator('.lib-note')).toHaveText(
+    await expect((await row(DIALS_OUT)).locator('.lib-note')).toHaveText(
       `calls fetch at line ${await outwardLineOf(DIALS_OUT, 'fetch(')}, ` +
         'needs a step',
     );
@@ -194,12 +222,13 @@ test.describe('a handler that dials out', () => {
    * where a person goes to look.
    */
   test('and the same call built inline, named where it is', async () => {
-    await select('record_payment', 'Node inspector · Transaction');
+    await select('record_payment', 'transaction');
+    await open();
     await reveal();
 
     const at = await outwardLineOf(BUILDS_AND_DIALS, '.connect(');
 
-    await expect(row(BUILDS_AND_DIALS).locator('.lib-note')).toHaveText(
+    await expect((await row(BUILDS_AND_DIALS)).locator('.lib-note')).toHaveText(
       `calls new Socket().connect (node:net) at line ${at}, needs a step`,
     );
   });

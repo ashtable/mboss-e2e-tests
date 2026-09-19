@@ -9,7 +9,12 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { expect, test, type FrameLocator } from '@playwright/test';
+import {
+  expect,
+  test,
+  type FrameLocator,
+  type Locator,
+} from '@playwright/test';
 
 import {
   SCENARIOS_DIR,
@@ -60,6 +65,16 @@ test.describe('preview and approve', () => {
   let sidebar: FrameLocator;
   let canvas: FrameLocator;
 
+  /** How tall something is drawn, in the window's
+   *  own pixels. */
+  const heightOf = async (what: Locator): Promise<number> => {
+    const box = await what.boundingBox();
+
+    if (box === null) throw new Error('nothing to measure — it has no box');
+
+    return box.height;
+  };
+
   test.beforeAll(async () => {
     scratch = await realpath(await mkdtemp(join(tmpdir(), 'mboss-tr-')));
     transcript = join(scratch, 'agent.ndjson');
@@ -90,6 +105,21 @@ test.describe('preview and approve', () => {
     );
 
     const composer = sidebar.locator('.composer textarea');
+
+    // The box grows with what is in it, a line at a
+    // time, rather than scrolling a small window
+    // over a prompt nobody can see whole. An empty
+    // box is already three lines tall, so it is
+    // given five. Asked before the prompt below and
+    // cleared again, because the agent answers only
+    // that prompt and anything sent first would be
+    // an error.
+    const empty = await heightOf(composer);
+
+    await composer.fill('one\ntwo\nthree\nfour\nfive');
+    await expect.poll(() => heightOf(composer)).toBeGreaterThan(empty);
+    await composer.fill('');
+
     await composer.fill(scenario.prompt);
     await composer.press('Enter');
 
@@ -137,20 +167,22 @@ test.describe('preview and approve', () => {
 
     // The one the agent made, told apart from the
     // question it is still waiting on — which the
-    // panel also draws as a card.
-    const call = sidebar
-      .locator('[data-tool-call]')
-      .filter({ hasText: 'workflow.apply_spec' });
+    // panel also draws as a card — by the id the
+    // agent gave it. This agent numbers its calls
+    // from one, and this call is its first.
+    const call = sidebar.locator('[data-tool-call="tool-1"]');
 
     await expect(call).toHaveAttribute('data-status', 'completed');
 
     // A row is what was done and what it was done
-    // to, and the panel sets the second half apart:
-    // the tool's name is the verb, and the argument
-    // that made it a rehearsal rather than a write
-    // is the thing it acted on.
-    await expect(call.locator('.tool-verb')).toHaveText('workflow.apply_spec');
-    await expect(call.locator('.tool-target')).toHaveText('dryRun');
+    // to, and the panel sets the second half apart.
+    // A call that edits a file is named by the file,
+    // the way a person would put it, rather than by
+    // the tool the agent called to do it.
+    await expect(call.locator('.tool-verb')).toHaveText('Edit');
+    await expect(call.locator('.tool-target')).toHaveText(
+      '.mboss/workflows/sermon_helper.workflow.json',
+    );
   });
 
   /**
@@ -166,11 +198,11 @@ test.describe('preview and approve', () => {
    */
   test('the canvas draws the proposal over the graph', async () => {
     await expect(canvas.locator('[data-preview-headline]')).toHaveText(
-      'PREVIEW — proposed by fake-acp-agent · not applied yet',
+      'Preview — proposed by fake-acp-agent · not applied yet',
     );
 
     await expect(canvas.locator('[data-preview-banner]')).toHaveText(
-      'PREVIEW CHANGES · +16 nodes +18 edges · ' +
+      'Preview changes · +16 nodes +18 edges · ' +
         'deterministic layout — the agent sent semantics, ' +
         'never coordinates',
     );

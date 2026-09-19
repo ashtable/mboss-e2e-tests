@@ -361,6 +361,18 @@ build's own entry-point name — which survives a redesign, a translation and a
 VS Code that renames its layers. `topology.spec.ts` asserts that chain on its
 own, so an editor that moves it fails as one spec rather than as all of them.
 
+**A frame is one page, held by name.** The frame the helper hands back is held
+to the page it found by the name its outer iframe carries, never by its place
+among the others. The side bar's views drop their pages whenever something
+takes them off screen — and every palette command does, because focus is parked
+on the Explorer first so that a webview cannot swallow the keystroke — so a
+frame found by position would slide on to a neighbour, or on to nothing, while
+the canvas it was found for is still in front. A side-bar view that was hidden
+comes back as a new page, so the Inspector is never kept across a command:
+`inspector()` finds its page afresh on every call, showing the view again first
+when a command has taken it off screen, and the journeys ask for it at every
+gesture that reads it.
+
 **A fresh profile _and_ a fresh project directory, every run.** Both are
 minted under the system temp root, and both matter. A workspace-trust decision
 is remembered against the folder's path and outlives the profile that made it —
@@ -389,7 +401,7 @@ asked to be an MCP server, from inside the project, the way an agent starts it.
 ACP agent registered through `mboss.agent`'s `custom` slot answers the
 sermon-helper prompt: the panel traces it reading both catalogs and dry-running
 a spec through the vendored server, the canvas draws
-`PREVIEW CHANGES · +16 nodes +18 edges` over sixteen dashed blocks, and
+`Preview changes · +16 nodes +18 edges` over sixteen dashed blocks, and
 **Approve & apply** writes the document at revision 2, marks the proposal
 `applied`, regenerates, and sends the agent one synthetic prompt — which the
 agent answers by scaffolding the code behind.
@@ -399,12 +411,30 @@ cursor back in the composer and changes nothing at all; asking again is what
 replaces a proposal, and the older one flips to `discarded` because core
 superseded it, not because the panel stopped drawing it.
 
-**`inspector-in-canvas.spec.ts`** — selecting a block costs nothing else on
-screen. The Inspector is a column of the canvas' own page rather than a view
-that takes the agent panel's place, so the sharpest assertion here is about a
-panel this spec never selects anything in: an unsent draft left in the composer
-is still there afterwards, which is the one piece of state that can tell "still
-there" from "built again".
+**`inspector-in-canvas.spec.ts`** — the Inspector follows the block picked on
+a canvas, and picking one costs nothing else on screen. The Inspector is a view
+of its own in the mBoss side bar, beside the agent panel rather than in its
+place, so the sharpest assertion here is about a panel this spec never selects
+anything in: an unsent draft left in the composer is still there afterwards,
+which is the one piece of state that can tell "still there" from "built again".
+Then the round trip through the file: a block renamed at the head of the
+Inspector is saved under its new name, and a trigger's offer to start a run goes
+while an edit is unsaved and comes back when the file is saved. That save is
+made from the keyboard, which leaves the side bar alone, so the Inspector that
+shows the offer again is the page that heard about the save rather than a new
+one drawn after it.
+
+**`inspector-reveal.spec.ts`** — when the Inspector puts itself in front of
+somebody. The first canvas opened in a window opens the mBoss container with the
+Inspector in it, leaves the canvas' tab in front and the keyboard out of the side
+bar, and draws the Runs view beside it once rather than twice. After that, a
+block picked while the side bar shows the Explorer leaves the Explorer there. It
+has a window of its own, because the first half happens once in a window's
+life, and it never asks for the Inspector through `inspector()`: whether it is
+showing is the question. It asserts where the keyboard is not rather than where
+it is, because the editor itself does not always hand a webview the keyboard it
+asked for while the page is still loading: with no Inspector involved at all, a
+canvas opened from the file finder leaves the keyboard on the window.
 
 **`canvas-editing.spec.ts`** — building a workflow by hand, with a real
 pointer. A Step chip is carried out of the rail and let go over the pane, and
